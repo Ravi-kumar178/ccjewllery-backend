@@ -30,7 +30,7 @@ const addProduct = async(req,res) => {
              subCategory,
              price:Number(price),
              bestseller:bestseller==="true"?true:false,
-             sizes:JSON.parse(sizes),
+             sizes:typeof sizes === 'string' ? sizes.split(',').map(s => s.trim()) : sizes,
              image: imageUrl,
              date: Date.now()
         }
