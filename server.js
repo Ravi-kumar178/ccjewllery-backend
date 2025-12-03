@@ -8,6 +8,8 @@ import productRoute from './Routes/productRoutes.js';
 import cartRouter from './Routes/cartRoute.js';
 import orderRouter from './Routes/orderRoute.js';
 import swaggerUi from 'swagger-ui-express';
+import contactRoutes from './Routes/contactRoutes.js';
+import adminDashboardRoutes from './Routes/adminDashboardRoutes.js';
 
 // Minimal OpenAPI spec for testing the APIs via Swagger UI
 const swaggerDocument = {
@@ -170,7 +172,55 @@ const swaggerDocument = {
                 responses: { '200': { description: 'Array of all orders' } }
             }
         }
+        ,
+        "/api/contact": {
+  "post": {
+    "summary": "Create a new contact message",
+    "description": "This endpoint is used to submit a contact message.",
+    "tags": ["Contact"],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+          "properties": {
+              "firstName": { "type": "string", "example": "Roshan" },
+              "lastName": { "type": "string", "example": "Kumar" },
+              "email": { "type": "string", "example": "roshan@gmail.com" },
+              "phone": { "type": "string", "example": "9876543210" },
+              "message": { "type": "string", "example": "I need help with my order." }
+            },
+            "required": ["firstName", "lastName", "email", "phone", "message"]
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "Message submitted successfully",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "example": {
+                "success": true,
+                "message": "Contact form submitted successfully"
+              }
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "Server error"
+      }
     }
+  }
+}
+
+        
+    }
+
 };
 
 
@@ -195,6 +245,10 @@ app.use('/api/user',userRouter);
 app.use('/api/product',productRoute);
 app.use('/api/cart', cartRouter);
 app.use('/api/order',orderRouter)
+app.use("/api/contact", contactRoutes);
+app.use("/api/admin", adminDashboardRoutes );
+
+
 
 
 //start server
