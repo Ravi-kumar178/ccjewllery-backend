@@ -8,6 +8,8 @@ import productRoute from './Routes/productRoutes.js';
 import cartRouter from './Routes/cartRoute.js';
 import orderRouter from './Routes/orderRoute.js';
 import swaggerUi from 'swagger-ui-express';
+import contactRoutes from './Routes/contactRoutes.js';
+import adminDashboardRoutes from './Routes/adminDashboardRoutes.js';
 
 // Minimal OpenAPI spec for testing the APIs via Swagger UI
 const swaggerDocument = {
@@ -58,7 +60,27 @@ const swaggerDocument = {
             post: {
                 tags: ['Product'],
                 summary: 'Add a new product (admin)',
-                requestBody: { required: true, content: { 'multipart/form-data': { schema: { type:'object', properties: { title:{type:'string'}, price:{type:'number'}, description:{type:'string'} } } } } },
+                requestBody: { 
+                    required: true, 
+                    content: { 
+                        'multipart/form-data': { 
+                            schema: { 
+                                type:'object', 
+                                properties: { 
+                                    name: {type:'string'},
+                                    description: {type:'string'},
+                                    price: {type:'number'},
+                                    category: {type:'string'},
+                                    subCategory: {type:'string'},
+                                    sizes: {type:'string'},
+                                    bestseller: {type:'string'},
+                                    image1: {type:'string', format:'binary'}
+                                },
+                                required: ['name','description','price','category','subCategory','sizes','bestseller','image1']
+                            } 
+                        } 
+                    } 
+                },
                 responses: { '200': { description: 'Product added' } }
             }
         },
@@ -70,55 +92,135 @@ const swaggerDocument = {
                 responses: { '200': { description: 'Product removed' } }
             }
         },
+        '/api/cart/create': {
+            post: {
+                tags: ['Cart'],
+                summary: 'Create a new cart',
+                requestBody: { required: false },
+                responses: { '200': { description: 'Cart created with cartId' } }
+            }
+        },
         '/api/cart/add': {
             post: {
                 tags: ['Cart'],
-                summary: 'Add item to cart',
-                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { productId:{type:'string'}, quantity:{type:'number'} }, required:['productId'] } } } },
-                responses: { '200': { description: 'Cart updated' } }
+                summary: 'Add item to cart (auto-creates cart if cartId not provided)',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, productId:{type:'string'}, size:{type:'string'}, quantity:{type:'number'} }, required:['productId'] } } } },
+                responses: { '200': { description: 'Item added to cart, returns cartId and cart object' } }
             }
         },
         '/api/cart/update': {
             post: {
                 tags: ['Cart'],
-                summary: 'Update cart item quantity',
-                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { productId:{type:'string'}, quantity:{type:'number'} }, required:['productId','quantity'] } } } },
-                responses: { '200': { description: 'Cart updated' } }
+                summary: 'Update cart item quantity or remove (quantity <= 0 removes item)',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, productId:{type:'string'}, size:{type:'string'}, quantity:{type:'number'} }, required:['cartId','productId','quantity'] } } } },
+                responses: { '200': { description: 'Cart item updated' } }
             }
         },
         '/api/cart/get': {
             post: {
                 tags: ['Cart'],
-                summary: 'Get user cart',
-                requestBody: { required: false },
-                responses: { '200': { description: 'Cart object' } }
+                summary: 'Get cart by cartId',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'} }, required:['cartId'] } } } },
+                responses: { '200': { description: 'Cart object with items and details' } }
+            }
+        },
+        '/api/cart/details': {
+            post: {
+                tags: ['Cart'],
+                summary: 'Save buyer details (name, address, mobile) to cart',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, name:{type:'string'}, address:{type:'string'}, mobile:{type:'string'} }, required:['cartId'] } } } },
+                responses: { '200': { description: 'Buyer details saved to cart' } }
+            }
+        },
+        '/api/cart/all': {
+            get: {
+                tags: ['Cart'],
+                summary: 'Get all carts',
+                responses: { '200': { description: 'Array of all carts' } }
             }
         },
         '/api/order/place': {
             post: {
                 tags: ['Order'],
-                summary: 'Place an order',
-                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, paymentMethod:{type:'string'} }, required:['cartId'] } } } },
-                responses: { '200': { description: 'Order placed' } }
+                summary: 'Place an order (COD - no authentication required). Items are taken from the cart by cartId.',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, amount:{type:'number'}, firstName:{type:'string'}, lastName:{type:'string'}, email:{type:'string'}, street:{type:'string'}, city:{type:'string'}, state:{type:'string'}, zipCode:{type:'string'}, country:{type:'string'}, phone:{type:'string'} }, required:['cartId','firstName','lastName','email','street','city','state','zipCode','country','phone'] } } } },
+                responses: { '200': { description: 'Order placed successfully' } }
             }
         },
-        '/api/order/userorders': {
+        '/api/order/authnet': {
             post: {
                 tags: ['Order'],
-                summary: 'Get user orders',
-                requestBody: { required: false },
-                responses: { '200': { description: 'Array of orders' } }
+                summary: 'Place order with Authorize.Net payment (TEST MODE - use test card numbers)',
+                description: 'Test Cards: 4111111111111111 (Approved), 4222222222222220 (Declined). CVV: 123. Expiry: Any future date (MM/YY)',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, amount:{type:'number'}, firstName:{type:'string'}, lastName:{type:'string'}, email:{type:'string'}, street:{type:'string'}, city:{type:'string'}, state:{type:'string'}, zipCode:{type:'string'}, country:{type:'string'}, phone:{type:'string'}, cardNumber:{type:'string', example:'4111111111111111'}, cardExpiry:{type:'string', example:'12/25'}, cardCVV:{type:'string', example:'123'} }, required:['cartId','firstName','lastName','email','street','city','state','zipCode','country','phone','cardNumber','cardExpiry','cardCVV'] } } } },
+                responses: { '200': { description: 'Payment processed successfully' } }
+            }
+        },
+        '/api/order/getorder': {
+            post: {
+                tags: ['Order'],
+                summary: 'Get order by cartId',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'} }, required:['cartId'] } } } },
+                responses: { '200': { description: 'Order details' } }
             }
         },
         '/api/order/list': {
             post: {
                 tags: ['Order'],
-                summary: 'List all orders (admin)',
+                summary: 'List all orders (admin only)',
                 requestBody: { required: false },
                 responses: { '200': { description: 'Array of all orders' } }
             }
         }
+        ,
+        "/api/contact": {
+  "post": {
+    "summary": "Create a new contact message",
+    "description": "This endpoint is used to submit a contact message.",
+    "tags": ["Contact"],
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+          "properties": {
+              "firstName": { "type": "string", "example": "Roshan" },
+              "lastName": { "type": "string", "example": "Kumar" },
+              "email": { "type": "string", "example": "roshan@gmail.com" },
+              "phone": { "type": "string", "example": "9876543210" },
+              "message": { "type": "string", "example": "I need help with my order." }
+            },
+            "required": ["firstName", "lastName", "email", "phone", "message"]
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "Message submitted successfully",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "example": {
+                "success": true,
+                "message": "Contact form submitted successfully"
+              }
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "Server error"
+      }
     }
+  }
+}
+
+        
+    }
+
 };
 
 
@@ -143,6 +245,10 @@ app.use('/api/user',userRouter);
 app.use('/api/product',productRoute);
 app.use('/api/cart', cartRouter);
 app.use('/api/order',orderRouter)
+app.use("/api/contact", contactRoutes);
+app.use("/api/admin", adminDashboardRoutes );
+
+
 
 
 //start server
