@@ -16,6 +16,21 @@ const orderSchema = new mongoose.Schema({
     status : { type: String, required: true, default: 'Order Placed' },
     paymentMethod: { type: String, required: true },
     payment: { type: Boolean, required: true, default: false },
+    // Payment tracking fields
+    transactionId: { type: String, required: false }, // Authorize.Net transaction ID or COD order reference
+    orderNumber: { type: String, required: false }, // Unique order number for tracking
+    paymentDate: { type: Date, required: false }, // When payment was processed
+    paymentStatus: { type: String, enum: ['pending', 'completed', 'failed', 'refunded'], default: 'pending' },
+    paymentDetails: { 
+        type: {
+            gateway: String, // 'AUTHORIZE_NET', 'COD', etc.
+            transactionId: String,
+            responseCode: String,
+            responseMessage: String,
+            processedAt: Date
+        },
+        required: false
+    },
     date: { type: Date, default: Date.now }
 })
 
