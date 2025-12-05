@@ -1,5 +1,5 @@
 import express from 'express'
-import  {placeOrder, placeOrderStripe, placeOrderAuthNet, allOrders, getOrderByCart, updateStatus} from '../Controllers/orderController.js'
+import  {placeOrder, placeOrderStripe, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus} from '../Controllers/orderController.js'
 import adminAuth from '../Middleware/adminAuth.js'
 
 const orderRouter = express.Router();
@@ -14,5 +14,7 @@ orderRouter.post('/authnet', placeOrderAuthNet)
 
 //public order lookup
 orderRouter.post('/getorder', getOrderByCart);
+orderRouter.post('/getbytransaction', getOrderByTransactionId);
+orderRouter.post('/getbyordernumber', getOrderByOrderNumber);
 
 export default orderRouter;

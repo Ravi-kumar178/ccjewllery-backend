@@ -143,33 +143,212 @@ const swaggerDocument = {
             post: {
                 tags: ['Order'],
                 summary: 'Place an order (COD - no authentication required). Items are taken from the cart by cartId.',
+                description: 'Returns order with unique orderNumber and transactionId (COD reference). Every order has a transaction ID for tracking.',
                 requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, amount:{type:'number'}, firstName:{type:'string'}, lastName:{type:'string'}, email:{type:'string'}, street:{type:'string'}, city:{type:'string'}, state:{type:'string'}, zipCode:{type:'string'}, country:{type:'string'}, phone:{type:'string'} }, required:['cartId','firstName','lastName','email','street','city','state','zipCode','country','phone'] } } } },
-                responses: { '200': { description: 'Order placed successfully' } }
+                responses: { 
+                    '200': { 
+                        description: 'Order placed successfully',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean' },
+                                        message: { type: 'string' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string', example: 'ORD-LX9K2M-AB3C' },
+                                        transactionId: { type: 'string', example: 'COD-1703123456789-XYZ123' }
+                                    }
+                                }
+                            }
+                        }
+                    } 
+                }
             }
         },
         '/api/order/authnet': {
             post: {
                 tags: ['Order'],
-                summary: 'Place order with Authorize.Net payment (TEST MODE - use test card numbers)',
-                description: 'Test Cards: 4111111111111111 (Approved), 4222222222222220 (Declined). CVV: 123. Expiry: Any future date (MM/YY)',
+                summary: 'Place order with Authorize.Net payment',
+                description: 'Test Cards (Sandbox): 4111111111111111 (Approved), 4222222222222220 (Declined). CVV: 123. Expiry: Any future date (MM/YY). Returns order with unique orderNumber and real Authorize.Net transactionId.',
                 requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'}, amount:{type:'number'}, firstName:{type:'string'}, lastName:{type:'string'}, email:{type:'string'}, street:{type:'string'}, city:{type:'string'}, state:{type:'string'}, zipCode:{type:'string'}, country:{type:'string'}, phone:{type:'string'}, cardNumber:{type:'string', example:'4111111111111111'}, cardExpiry:{type:'string', example:'12/25'}, cardCVV:{type:'string', example:'123'} }, required:['cartId','firstName','lastName','email','street','city','state','zipCode','country','phone','cardNumber','cardExpiry','cardCVV'] } } } },
-                responses: { '200': { description: 'Payment processed successfully' } }
+                responses: { 
+                    '200': { 
+                        description: 'Payment processed successfully',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean' },
+                                        message: { type: 'string' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string', example: 'ORD-LX9K2M-AB3C' },
+                                        transactionId: { type: 'string', example: '60012345678' }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '400': {
+                        description: 'Payment failed',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean' },
+                                        message: { type: 'string' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string' }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         '/api/order/getorder': {
             post: {
                 tags: ['Order'],
                 summary: 'Get order by cartId',
+                description: 'Returns order with payment tracking information (orderNumber, transactionId, paymentStatus)',
                 requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { cartId:{type:'string'} }, required:['cartId'] } } } },
-                responses: { '200': { description: 'Order details' } }
+                responses: { 
+                    '200': { 
+                        description: 'Order details with payment tracking',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string' },
+                                        transactionId: { type: 'string' },
+                                        paymentStatus: { type: 'string', enum: ['pending', 'completed', 'failed', 'refunded'] }
+                                    }
+                                }
+                            }
+                        }
+                    } 
+                }
+            }
+        },
+        '/api/order/getbytransaction': {
+            post: {
+                tags: ['Order'],
+                summary: 'Get order by transaction ID',
+                description: 'Search for an order using its transaction ID (Authorize.Net transaction ID or COD reference)',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { transactionId:{type:'string', example:'60012345678'} }, required:['transactionId'] } } } },
+                responses: { 
+                    '200': { 
+                        description: 'Order found with payment details',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string' },
+                                        transactionId: { type: 'string' },
+                                        paymentStatus: { type: 'string' },
+                                        paymentDetails: { 
+                                            type: 'object',
+                                            properties: {
+                                                gateway: { type: 'string' },
+                                                transactionId: { type: 'string' },
+                                                responseCode: { type: 'string' },
+                                                responseMessage: { type: 'string' },
+                                                processedAt: { type: 'string', format: 'date-time' }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '404': { description: 'Order not found with this transaction ID' }
+                }
+            }
+        },
+        '/api/order/getbyordernumber': {
+            post: {
+                tags: ['Order'],
+                summary: 'Get order by order number',
+                description: 'Search for an order using its unique order number (e.g., ORD-LX9K2M-AB3C)',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { orderNumber:{type:'string', example:'ORD-LX9K2M-AB3C'} }, required:['orderNumber'] } } } },
+                responses: { 
+                    '200': { 
+                        description: 'Order found with payment details',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string' },
+                                        transactionId: { type: 'string' },
+                                        paymentStatus: { type: 'string' },
+                                        paymentDetails: { 
+                                            type: 'object',
+                                            properties: {
+                                                gateway: { type: 'string' },
+                                                transactionId: { type: 'string' },
+                                                responseCode: { type: 'string' },
+                                                responseMessage: { type: 'string' },
+                                                processedAt: { type: 'string', format: 'date-time' }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '404': { description: 'Order not found with this order number' }
+                }
             }
         },
         '/api/order/list': {
             post: {
                 tags: ['Order'],
                 summary: 'List all orders (admin only)',
+                description: 'Returns all orders with payment tracking information (orderNumber, transactionId, paymentStatus, paymentDetails)',
                 requestBody: { required: false },
-                responses: { '200': { description: 'Array of all orders' } }
+                responses: { 
+                    '200': { 
+                        description: 'Array of all orders with payment tracking',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean' },
+                                        orders: { 
+                                            type: 'array',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    orderNumber: { type: 'string' },
+                                                    transactionId: { type: 'string' },
+                                                    paymentStatus: { type: 'string' },
+                                                    paymentDetails: { type: 'object' },
+                                                    paymentDate: { type: 'string', format: 'date-time' },
+                                                    amount: { type: 'number' },
+                                                    paymentMethod: { type: 'string' }
+                                                }
+                                            }
+                                        },
+                                        total: { type: 'number' }
+                                    }
+                                }
+                            }
+                        }
+                    } 
+                }
             }
         }
         ,
@@ -232,7 +411,17 @@ connectCloudinary()
 
 //Middleware
 app.use(express.json());
-app.use(cors());
+
+// CORS configuration - allow all origins for development
+app.use(cors({
+    origin: '*', // Allow all origins (change to specific domain in production)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false
+}));
+
+// Handle preflight requests
+app.options('*', cors());
 
 
 //api endpoints

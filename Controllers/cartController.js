@@ -5,10 +5,10 @@ const createCart = async (req, res) => {
     try {
         const newCart = new Cart();
         await newCart.save();
-        return res.json({ success: true, cartId: newCart._id, cart: newCart });
+        return res.status(200).json({ success: true, cartId: newCart._id, cart: newCart });
     } catch (error) {
-        console.log(error);
-        return res.json({ success: false, message: error.message });
+        console.error('Error creating cart:', error);
+        return res.status(500).json({ success: false, message: error.message || 'Failed to create cart' });
     }
 }
 
@@ -18,6 +18,15 @@ const addToCart = async (req, res) => {
         const { cartId, productId, size, quantity } = req.body;
 
         if (!productId) return res.status(400).json({ success: false, message: 'productId is required' });
+
+        // Validate productId is a valid MongoDB ObjectId
+        const mongoose = (await import('mongoose')).default;
+        if (!mongoose.Types.ObjectId.isValid(productId)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Invalid product ID format. Product ID "${productId}" is not a valid MongoDB ObjectId. Please ensure products are fetched from the backend API.` 
+            });
+        }
 
         const qty = quantity ? Number(quantity) : 1;
 
@@ -43,7 +52,14 @@ const addToCart = async (req, res) => {
         return res.json({ success: true, cartId: cart._id, cart });
     } catch (error) {
         console.log(error);
-        return res.json({ success: false, message: error.message });
+        // Check if it's a validation error about ObjectId
+        if (error.message && error.message.includes('Cast to ObjectId')) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Invalid product ID. Products must be fetched from the backend API to get valid ObjectIds.' 
+            });
+        }
+        return res.status(500).json({ success: false, message: error.message || 'Failed to add item to cart' });
     }
 }
 
