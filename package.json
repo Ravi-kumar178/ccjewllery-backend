@@ -16,14 +16,15 @@
     "cloudinary": "^2.5.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "swagger-ui-express": "^4.6.3",
     "express": "^4.21.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.6.3",
     "multer": "^1.4.5-lts.1",
     "nodemon": "^3.1.7",
     "razorpay": "^2.9.4",
+    "resend": "^6.5.2",
     "stripe": "^16.12.0",
+    "swagger-ui-express": "^4.6.3",
     "validator": "^13.12.0"
   },
   "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0"
