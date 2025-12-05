@@ -403,25 +403,47 @@ const placeOrder = async(req,res) => {
 
         // Send order confirmation email
         try {
+            console.log(`\n📧 ===== EMAIL SENDING PROCESS START =====`);
             console.log(`📧 Preparing to send order confirmation email for Order #${orderNumber}...`);
+            console.log(`📧 Customer Email: ${email}`);
+            console.log(`📧 Checking email configuration...`);
+            
             const emailHTML = await generateOrderEmailHTML(newOrder, cart.items);
+            console.log(`📧 Email HTML generated (length: ${emailHTML.length} characters)`);
+            
+            const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
+            console.log(`📧 Email From: ${emailFrom}`);
+            console.log(`📧 Email To: ${email}`);
+            console.log(`📧 Email Subject: Order Confirmation - ${orderNumber}`);
+            
             const emailResult = await sendEmail({
-                from: process.env.EMAIL_FROM || 'noreply@ccjewllery.com',
+                from: emailFrom,
                 to: email,
                 subject: `Order Confirmation - ${orderNumber}`,
                 html: emailHTML
             });
             
+            console.log(`📧 Email send result:`, JSON.stringify(emailResult, null, 2));
+            
             if (emailResult.success) {
+                console.log(`\n✅ ===== EMAIL SENT SUCCESSFULLY =====`);
                 console.log(`✅ Order confirmation email sent successfully!`);
                 console.log(`   📬 To: ${email}`);
                 console.log(`   📋 Order Number: ${orderNumber}`);
                 console.log(`   💰 Amount: $${finalAmount.toLocaleString()}`);
+                console.log(`✅ ======================================\n`);
             } else {
-                console.warn(`⚠️  Email service not configured or failed:`, emailResult.error);
+                console.log(`\n⚠️  ===== EMAIL SENDING FAILED =====`);
+                console.warn(`⚠️  Email service not configured or failed`);
+                console.warn(`   Error:`, emailResult.error);
+                console.warn(`   This is normal if RESEND_API_KEY is not set in .env`);
+                console.warn(`⚠️  ====================================\n`);
             }
         } catch (emailError) {
+            console.error(`\n❌ ===== EMAIL SENDING ERROR =====`);
             console.error('❌ Failed to send order confirmation email:', emailError.message);
+            console.error('❌ Full error:', emailError);
+            console.error(`❌ ===================================\n`);
             // Don't fail the order if email fails
         }
 
@@ -566,27 +588,49 @@ const placeOrderAuthNet = async(req,res) => {
 
             // Send order confirmation email
             try {
+                console.log(`\n📧 ===== EMAIL SENDING PROCESS START =====`);
                 console.log(`📧 Preparing to send order confirmation email for Order #${orderNumber}...`);
+                console.log(`📧 Customer Email: ${email}`);
+                console.log(`📧 Checking email configuration...`);
+                
                 const emailHTML = await generateOrderEmailHTML(updatedOrder, cart.items);
+                console.log(`📧 Email HTML generated (length: ${emailHTML.length} characters)`);
+                
+                const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
+                console.log(`📧 Email From: ${emailFrom}`);
+                console.log(`📧 Email To: ${email}`);
+                console.log(`📧 Email Subject: Order Confirmation - ${orderNumber} (Payment Successful)`);
+                
                 const emailResult = await sendEmail({
-                    from: process.env.EMAIL_FROM || 'noreply@ccjewllery.com',
+                    from: emailFrom,
                     to: email,
                     subject: `Order Confirmation - ${orderNumber} (Payment Successful)`,
                     html: emailHTML
                 });
                 
+                console.log(`📧 Email send result:`, JSON.stringify(emailResult, null, 2));
+                
                 if (emailResult.success) {
+                    console.log(`\n✅ ===== EMAIL SENT SUCCESSFULLY =====`);
                     console.log(`✅ Order confirmation email sent successfully!`);
                     console.log(`   📬 To: ${email}`);
                     console.log(`   📋 Order Number: ${orderNumber}`);
                     console.log(`   💳 Transaction ID: ${transactionId}`);
                     console.log(`   💰 Amount: $${finalAmount.toLocaleString()}`);
                     console.log(`   ✅ Payment Status: Paid`);
+                    console.log(`✅ ======================================\n`);
                 } else {
-                    console.warn(`⚠️  Email service not configured or failed:`, emailResult.error);
+                    console.log(`\n⚠️  ===== EMAIL SENDING FAILED =====`);
+                    console.warn(`⚠️  Email service not configured or failed`);
+                    console.warn(`   Error:`, emailResult.error);
+                    console.warn(`   This is normal if RESEND_API_KEY is not set in .env`);
+                    console.warn(`⚠️  ====================================\n`);
                 }
             } catch (emailError) {
+                console.error(`\n❌ ===== EMAIL SENDING ERROR =====`);
                 console.error('❌ Failed to send order confirmation email:', emailError.message);
+                console.error('❌ Full error:', emailError);
+                console.error(`❌ ===================================\n`);
                 // Don't fail the order if email fails
             }
 
