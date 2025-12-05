@@ -1,5 +1,5 @@
 import express from 'express'
-import  {placeOrder, placeOrderStripe, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus} from '../Controllers/orderController.js'
+import  {placeOrder, placeOrderStripe, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail} from '../Controllers/orderController.js'
 import adminAuth from '../Middleware/adminAuth.js'
 
 const orderRouter = express.Router();
@@ -16,5 +16,8 @@ orderRouter.post('/authnet', placeOrderAuthNet)
 orderRouter.post('/getorder', getOrderByCart);
 orderRouter.post('/getbytransaction', getOrderByTransactionId);
 orderRouter.post('/getbyordernumber', getOrderByOrderNumber);
+
+//test email endpoint
+orderRouter.post('/test-email', testEmail);
 
 export default orderRouter;

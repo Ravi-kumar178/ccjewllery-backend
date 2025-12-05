@@ -868,4 +868,62 @@ const updateStatus = async(req,res) => {
     }
 }
 
-export {placeOrder, placeOrderStripe, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus}
+// Test email endpoint for debugging
+const testEmail = async (req, res) => {
+    try {
+        const { email } = req.body;
+        
+        if (!email) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Email address is required" 
+            });
+        }
+
+        console.log(`\n🧪 ===== TESTING EMAIL SERVICE =====`);
+        console.log(`🧪 Testing email to: ${email}`);
+        console.log(`🧪 RESEND_API_KEY configured: ${process.env.RESEND_API_KEY ? 'YES ✅' : 'NO ❌'}`);
+        console.log(`🧪 EMAIL_FROM: ${process.env.EMAIL_FROM || 'noreply@ccjewllery.com (default)'}`);
+
+        const testResult = await sendEmail({
+            from: process.env.EMAIL_FROM || 'noreply@ccjewllery.com',
+            to: email,
+            subject: 'Test Email - Order Confirmation System',
+            html: `
+                <h2>🧪 Test Email</h2>
+                <p>If you received this email, your email service is working correctly!</p>
+                <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+                <p><strong>From:</strong> ${process.env.EMAIL_FROM || 'noreply@ccjewllery.com'}</p>
+                <p><strong>To:</strong> ${email}</p>
+                <hr>
+                <p><small>This is a test email from your CCJewllery order system.</small></p>
+            `
+        });
+
+        console.log(`🧪 Test result:`, JSON.stringify(testResult, null, 2));
+        console.log(`🧪 ====================================\n`);
+
+        if (testResult.success) {
+            return res.json({
+                success: true,
+                message: "Test email sent successfully! Check your inbox (and spam folder).",
+                details: testResult.data
+            });
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: "Failed to send test email",
+                error: testResult.error,
+                hint: "Make sure RESEND_API_KEY is set in your .env file"
+            });
+        }
+    } catch (error) {
+        console.error('Test email error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
+
+export {placeOrder, placeOrderStripe, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail}
