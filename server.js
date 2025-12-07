@@ -353,50 +353,93 @@ const swaggerDocument = {
         }
         ,
         "/api/contact": {
-  "post": {
-    "summary": "Create a new contact message",
-    "description": "This endpoint is used to submit a contact message.",
-    "tags": ["Contact"],
-    "requestBody": {
-      "required": true,
-      "content": {
-        "application/json": {
-          "schema": {
-            "type": "object",
-          "properties": {
-              "firstName": { "type": "string", "example": "Roshan" },
-              "lastName": { "type": "string", "example": "Kumar" },
-              "email": { "type": "string", "example": "roshan@gmail.com" },
-              "phone": { "type": "string", "example": "9876543210" },
-              "message": { "type": "string", "example": "I need help with my order." }
-            },
-            "required": ["firstName", "lastName", "email", "phone", "message"]
-          }
-        }
-      }
-    },
-    "responses": {
-      "200": {
-        "description": "Message submitted successfully",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "example": {
-                "success": true,
-                "message": "Contact form submitted successfully"
-              }
+            post: {
+                summary: "Create a new contact message",
+                description: "This endpoint is used to submit a contact message.",
+                tags: ["Contact"],
+                requestBody: {
+                    required: true,
+                    content: {
+                        "application/json": {
+                            schema: {
+                                type: "object",
+                                properties: {
+                                    firstName: { type: "string", example: "Roshan" },
+                                    lastName: { type: "string", example: "Kumar" },
+                                    email: { type: "string", example: "roshan@gmail.com" },
+                                    phone: { type: "string", example: "9876543210" },
+                                    message: { type: "string", example: "I need help with my order." }
+                                },
+                                required: ["firstName", "lastName", "email", "phone", "message"]
+                            }
+                        }
+                    }
+                },
+                responses: {
+                    "200": {
+                        description: "Message submitted successfully",
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    example: {
+                                        success: true,
+                                        message: "Contact form submitted successfully"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        description: "Server error"
+                    }
+                }
             }
-          }
+        },
+        "/api/admin/stats": {
+            get: {
+                tags: ["Admin Dashboard"],
+                summary: "Get dashboard statistics (admin only)",
+                description: "Returns statistics for the admin dashboard including total orders, revenue, products, and recent activity. Requires admin authentication.",
+                security: [{ bearerAuth: [] }],
+                responses: {
+                    "200": {
+                        description: "Dashboard statistics retrieved successfully",
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        success: { type: "boolean" },
+                                        stats: {
+                                            type: "object",
+                                            properties: {
+                                                totalOrders: { type: "number", example: 150 },
+                                                totalRevenue: { type: "number", example: 45000.50 },
+                                                totalProducts: { type: "number", example: 45 },
+                                                totalUsers: { type: "number", example: 320 },
+                                                pendingOrders: { type: "number", example: 12 },
+                                                completedOrders: { type: "number", example: 138 },
+                                                recentOrders: {
+                                                    type: "array",
+                                                    items: { type: "object" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        description: "Unauthorized - Admin authentication required"
+                    },
+                    "500": {
+                        description: "Server error"
+                    }
+                }
+            }
         }
-      },
-      "500": {
-        "description": "Server error"
-      }
-    }
-  }
-}
-
         
     }
 
