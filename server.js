@@ -209,6 +209,125 @@ const swaggerDocument = {
                 }
             }
         },
+        '/api/order/razorpay': {
+            post: {
+                tags: ['Order'],
+                summary: 'Create Razorpay order (Step 1)',
+                description: 'Creates an order and returns Razorpay order ID. Amount is AUTO-CALCULATED from cart items (price × quantity) + ₹10 delivery. Supports GPay, PhonePe, UPI, Cards, Net Banking, Wallets.',
+                requestBody: { 
+                    required: true, 
+                    content: { 
+                        'application/json': { 
+                            schema: { 
+                                type: 'object', 
+                                properties: { 
+                                    cartId: { type: 'string', example: '507f1f77bcf86cd799439011' },
+                                    firstName: { type: 'string', example: 'Rahul' },
+                                    lastName: { type: 'string', example: 'Sharma' },
+                                    email: { type: 'string', example: 'rahul@example.com' },
+                                    street: { type: 'string', example: '123 MG Road' },
+                                    city: { type: 'string', example: 'Mumbai' },
+                                    state: { type: 'string', example: 'Maharashtra' },
+                                    zipCode: { type: 'string', example: '400001' },
+                                    country: { type: 'string', example: 'India' },
+                                    phone: { type: 'string', example: '9876543210' }
+                                }, 
+                                required: ['cartId', 'firstName', 'lastName', 'email', 'street', 'city', 'state', 'zipCode', 'country', 'phone'] 
+                            } 
+                        } 
+                    } 
+                },
+                responses: { 
+                    '200': { 
+                        description: 'Razorpay order created successfully',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean', example: true },
+                                        message: { type: 'string', example: 'Razorpay order created. Complete payment on frontend.' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string', example: 'ORD-LX9K2M-AB3C' },
+                                        razorpayOrder: { 
+                                            type: 'object',
+                                            properties: {
+                                                id: { type: 'string', example: 'order_ABC123xyz' },
+                                                amount: { type: 'number', example: 150000, description: 'Amount in paise (multiply by 100)' },
+                                                currency: { type: 'string', example: 'INR' }
+                                            }
+                                        },
+                                        key_id: { type: 'string', example: 'rzp_test_xxxxx', description: 'Use this to initialize Razorpay checkout on frontend' }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '400': { description: 'Missing required fields' },
+                    '404': { description: 'Cart not found' },
+                    '500': { description: 'Razorpay not configured or server error' }
+                }
+            }
+        },
+        '/api/order/verifyrazorpay': {
+            post: {
+                tags: ['Order'],
+                summary: 'Verify Razorpay payment (Step 2)',
+                description: 'After user completes payment on Razorpay checkout, call this endpoint with the payment details to verify signature and complete the order. Sends confirmation email on success.',
+                requestBody: { 
+                    required: true, 
+                    content: { 
+                        'application/json': { 
+                            schema: { 
+                                type: 'object', 
+                                properties: { 
+                                    razorpay_order_id: { type: 'string', example: 'order_ABC123xyz', description: 'From Razorpay checkout response' },
+                                    razorpay_payment_id: { type: 'string', example: 'pay_XYZ789abc', description: 'From Razorpay checkout response' },
+                                    razorpay_signature: { type: 'string', example: 'a1b2c3d4e5f6...', description: 'From Razorpay checkout response (HMAC SHA256)' },
+                                    cartId: { type: 'string', example: '507f1f77bcf86cd799439011', description: 'Optional - to mark cart as completed' }
+                                }, 
+                                required: ['razorpay_order_id', 'razorpay_payment_id', 'razorpay_signature'] 
+                            } 
+                        } 
+                    } 
+                },
+                responses: { 
+                    '200': { 
+                        description: 'Payment verified successfully',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean', example: true },
+                                        message: { type: 'string', example: 'Payment verified successfully' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string', example: 'ORD-LX9K2M-AB3C' },
+                                        transactionId: { type: 'string', example: 'pay_XYZ789abc' }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '400': { 
+                        description: 'Signature verification failed (possible tampering)',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean', example: false },
+                                        message: { type: 'string', example: 'Payment verification failed. Invalid signature.' },
+                                        orderNumber: { type: 'string' }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '404': { description: 'Order not found with this Razorpay order ID' }
+                }
+            }
+        },
         '/api/order/getorder': {
             post: {
                 tags: ['Order'],

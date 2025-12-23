@@ -23,11 +23,14 @@ const orderSchema = new mongoose.Schema({
     paymentStatus: { type: String, enum: ['pending', 'completed', 'failed', 'refunded'], default: 'pending' },
     paymentDetails: { 
         type: {
-            gateway: String, // 'AUTHORIZE_NET', 'COD', etc.
+            gateway: String, // 'AUTHORIZE_NET', 'COD', 'RAZORPAY', etc.
             transactionId: String,
             responseCode: String,
             responseMessage: String,
-            processedAt: Date
+            processedAt: Date,
+            // Razorpay specific fields
+            razorpayOrderId: String,
+            razorpaySignature: String
         },
         required: false
     },

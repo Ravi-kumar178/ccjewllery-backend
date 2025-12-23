@@ -3,9 +3,23 @@ import Cart from '../Models/cartModel.js'
 import productModel from '../Models/productModel.js'
 import https from 'https'
 import { sendEmail } from '../Config/email.js'
+import Razorpay from 'razorpay'
+import crypto from 'crypto'
 
 //global variable
 const deliveryCharge = 10
+
+// Razorpay configuration
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET
+
+// Initialize Razorpay instance (only if credentials are provided)
+const razorpayInstance = RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET 
+    ? new Razorpay({
+        key_id: RAZORPAY_KEY_ID,
+        key_secret: RAZORPAY_KEY_SECRET
+    })
+    : null
 
 // Generate unique order number
 const generateOrderNumber = () => {
@@ -462,10 +476,296 @@ const placeOrder = async(req,res) => {
     }
     
 }
-//placing orders using cod method
-const placeOrderStripe = async(req,res) => {
+//placing orders using Razorpay method
+const placeOrderRazorpay = async(req,res) => {
+    try {
+        // Check if Razorpay is configured
+        if (!razorpayInstance) {
+            return res.status(500).json({
+                success: false, 
+                message: "Razorpay is not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in environment variables."
+            })
+        }
 
+        const { cartId, amount, firstName, lastName, email, street, city, state, zipCode, country, phone } = req.body;
+
+        // Validate required fields - show which field is missing
+        const missingFields = [];
+        if(!cartId) missingFields.push('cartId');
+        if(!firstName) missingFields.push('firstName');
+        if(!lastName) missingFields.push('lastName');
+        if(!email) missingFields.push('email');
+        if(!street) missingFields.push('street');
+        if(!city) missingFields.push('city');
+        if(!state) missingFields.push('state');
+        if(!zipCode) missingFields.push('zipCode');
+        if(!country) missingFields.push('country');
+        if(!phone) missingFields.push('phone');
+        
+        if(missingFields.length > 0) {
+            return res.status(400).json({
+                success: false, 
+                message: `Missing required fields: ${missingFields.join(', ')}. Amount is optional and will be calculated from cart.`
+            })
+        }
+
+        // Validate cartId is a valid MongoDB ObjectId
+        const mongoose = (await import('mongoose')).default;
+        if (!mongoose.Types.ObjectId.isValid(cartId)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid cartId format. Got "${cartId}" but expected a 24-character MongoDB ObjectId like "692bdd7df73a6e0e0588c81d". Make sure you're using the cartId returned from /api/cart/add or /api/cart/create API.`
+            })
+        }
+
+        // Get cart and validate
+        const cart = await Cart.findById(cartId);
+        if(!cart) return res.status(404).json({success:false, message:'Cart not found'})
+        if(!cart.items || cart.items.length === 0) return res.status(400).json({success:false, message:'Cart is empty'})
+
+        // Compute amount if not provided
+        let finalAmount = amount ? Number(amount) : 0;
+        if(!amount){
+            for(const it of cart.items){
+                try{
+                    const prod = await productModel.findById(it.productId);
+                    const price = prod && prod.price ? Number(prod.price) : 0;
+                    finalAmount += price * (Number(it.quantity) || 1);
+                }catch(e){
+                    // ignore missing product price
+                }
+            }
+            finalAmount += deliveryCharge;
+        }
+
+        // Generate unique order number
+        const orderNumber = generateOrderNumber();
+
+        // Create order in DB first (pending state)
+        const orderData = {
+            cartId,
+            items: cart.items,
+            amount: finalAmount,
+            firstName,
+            lastName,
+            email,
+            street,
+            city,
+            state,
+            zipCode,
+            country,
+            phone,
+            paymentMethod: "Razorpay",
+            payment: false,
+            transactionId: null,
+            orderNumber: orderNumber,
+            paymentStatus: 'pending',
+            paymentDetails: {
+                gateway: 'RAZORPAY',
+                transactionId: null,
+                responseCode: null,
+                responseMessage: 'Payment initiated',
+                processedAt: new Date()
+            }
+        }
+
+        const newOrder = new orderModel(orderData);
+        await newOrder.save();
+
+        // Create Razorpay order
+        // Note: Razorpay expects amount in paise (smallest currency unit)
+        // For INR: 1 INR = 100 paise, so multiply by 100
+        // For USD: If using USD, amount is in cents
+        const razorpayOptions = {
+            amount: Math.round(finalAmount * 100), // Convert to smallest currency unit
+            currency: "INR", // Change to "USD" if needed
+            receipt: newOrder._id.toString(),
+            notes: {
+                orderNumber: orderNumber,
+                customerEmail: email,
+                customerName: `${firstName} ${lastName}`
+            }
+        }
+
+        const razorpayOrder = await razorpayInstance.orders.create(razorpayOptions);
+
+        // Update order with Razorpay order ID
+        await orderModel.findByIdAndUpdate(newOrder._id, {
+            'paymentDetails.razorpayOrderId': razorpayOrder.id
+        });
+
+        console.log(`\n💳 ===== RAZORPAY ORDER CREATED =====`);
+        console.log(`💳 Order Number: ${orderNumber}`);
+        console.log(`💳 Razorpay Order ID: ${razorpayOrder.id}`);
+        console.log(`💳 Amount: ${finalAmount} (${razorpayOptions.currency})`);
+        console.log(`💳 Customer: ${firstName} ${lastName} (${email})`);
+        console.log(`💳 =====================================\n`);
+
+        // Return Razorpay order details to frontend
+        return res.json({
+            success: true,
+            message: "Razorpay order created. Complete payment on frontend.",
+            order: newOrder,
+            orderNumber: orderNumber,
+            razorpayOrder: {
+                id: razorpayOrder.id,
+                amount: razorpayOrder.amount,
+                currency: razorpayOrder.currency
+            },
+            key_id: RAZORPAY_KEY_ID // Frontend needs this to open Razorpay checkout
+        })
+
+    } catch (error) {
+        console.error('Razorpay order creation error:', error);
+        return res.status(500).json({success: false, message: error.message})
+    }
 }
+
+// Verify Razorpay payment after user completes checkout
+const verifyRazorpay = async (req, res) => {
+    try {
+        const { razorpay_order_id, razorpay_payment_id, razorpay_signature, cartId } = req.body;
+
+        // Validate required fields
+        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing required fields: razorpay_order_id, razorpay_payment_id, razorpay_signature"
+            })
+        }
+
+        // Find order by Razorpay order ID
+        const order = await orderModel.findOne({ 'paymentDetails.razorpayOrderId': razorpay_order_id });
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: "Order not found with this Razorpay order ID"
+            })
+        }
+
+        // Verify signature using HMAC SHA256
+        // Razorpay creates signature by hashing: order_id + "|" + payment_id
+        const body = razorpay_order_id + "|" + razorpay_payment_id;
+        const expectedSignature = crypto
+            .createHmac('sha256', RAZORPAY_KEY_SECRET)
+            .update(body)
+            .digest('hex');
+
+        const isSignatureValid = expectedSignature === razorpay_signature;
+
+        console.log(`\n🔐 ===== RAZORPAY SIGNATURE VERIFICATION =====`);
+        console.log(`🔐 Order ID: ${razorpay_order_id}`);
+        console.log(`🔐 Payment ID: ${razorpay_payment_id}`);
+        console.log(`🔐 Received Signature: ${razorpay_signature.substring(0, 20)}...`);
+        console.log(`🔐 Expected Signature: ${expectedSignature.substring(0, 20)}...`);
+        console.log(`🔐 Signature Valid: ${isSignatureValid ? '✅ YES' : '❌ NO'}`);
+        console.log(`🔐 =============================================\n`);
+
+        if (isSignatureValid) {
+            // Payment successful - Update order
+            await orderModel.findByIdAndUpdate(order._id, {
+                payment: true,
+                transactionId: razorpay_payment_id,
+                status: "Paid",
+                paymentStatus: 'completed',
+                paymentDate: new Date(),
+                paymentDetails: {
+                    gateway: 'RAZORPAY',
+                    razorpayOrderId: razorpay_order_id,
+                    transactionId: razorpay_payment_id,
+                    razorpaySignature: razorpay_signature,
+                    responseCode: '1',
+                    responseMessage: 'Payment successful',
+                    processedAt: new Date()
+                }
+            });
+
+            // Mark cart as completed
+            if (cartId) {
+                await Cart.findByIdAndUpdate(cartId, { status: 'completed' });
+            } else if (order.cartId) {
+                await Cart.findByIdAndUpdate(order.cartId, { status: 'completed' });
+            }
+
+            // Fetch updated order
+            const updatedOrder = await orderModel.findById(order._id);
+
+            // Send order confirmation email
+            try {
+                console.log(`\n📧 ===== EMAIL SENDING PROCESS START =====`);
+                console.log(`📧 Preparing to send order confirmation email for Order #${order.orderNumber}...`);
+                console.log(`📧 Customer Email: ${order.email}`);
+                
+                // Get cart for email
+                const cart = await Cart.findById(order.cartId);
+                const emailHTML = await generateOrderEmailHTML(updatedOrder, cart?.items || order.items);
+                
+                const emailResult = await sendEmail({
+                    from: process.env.EMAIL_FROM || 'noreply@ccjewllery.com',
+                    to: order.email,
+                    subject: `Order Confirmation - ${order.orderNumber} (Payment Successful)`,
+                    html: emailHTML
+                });
+
+                if (emailResult.success) {
+                    console.log(`✅ Order confirmation email sent successfully to ${order.email}`);
+                } else {
+                    console.warn(`⚠️ Email service not configured or failed:`, emailResult.error);
+                }
+            } catch (emailError) {
+                console.error('❌ Failed to send order confirmation email:', emailError.message);
+                // Don't fail the order if email fails
+            }
+
+            console.log(`\n✅ ===== RAZORPAY PAYMENT SUCCESSFUL =====`);
+            console.log(`✅ Order Number: ${order.orderNumber}`);
+            console.log(`✅ Transaction ID: ${razorpay_payment_id}`);
+            console.log(`✅ Amount: ${order.amount}`);
+            console.log(`✅ Customer: ${order.firstName} ${order.lastName}`);
+            console.log(`✅ =========================================\n`);
+
+            return res.json({
+                success: true,
+                message: "Payment verified successfully",
+                order: updatedOrder,
+                orderNumber: order.orderNumber,
+                transactionId: razorpay_payment_id
+            })
+
+        } else {
+            // Signature verification failed - possible tampering
+            await orderModel.findByIdAndUpdate(order._id, {
+                status: "Payment Failed",
+                paymentStatus: 'failed',
+                paymentDetails: {
+                    gateway: 'RAZORPAY',
+                    razorpayOrderId: razorpay_order_id,
+                    transactionId: razorpay_payment_id,
+                    razorpaySignature: razorpay_signature,
+                    responseCode: '0',
+                    responseMessage: 'Signature verification failed',
+                    processedAt: new Date()
+                }
+            });
+
+            console.error(`\n❌ ===== RAZORPAY SIGNATURE VERIFICATION FAILED =====`);
+            console.error(`❌ Order: ${order.orderNumber}`);
+            console.error(`❌ This could indicate payment tampering!`);
+            console.error(`❌ ====================================================\n`);
+
+            return res.status(400).json({
+                success: false,
+                message: "Payment verification failed. Invalid signature.",
+                orderNumber: order.orderNumber
+            })
+        }
+
+    } catch (error) {
+        console.error('Razorpay verification error:', error);
+        return res.status(500).json({ success: false, message: error.message })
+    }
+}
+
 //placing orders using Authorize.Net
 const placeOrderAuthNet = async(req,res) => {
     try {
@@ -926,4 +1226,4 @@ const testEmail = async (req, res) => {
     }
 }
 
-export {placeOrder, placeOrderStripe, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail}
+export {placeOrder, placeOrderRazorpay, verifyRazorpay, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail}
