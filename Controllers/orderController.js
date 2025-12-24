@@ -578,7 +578,7 @@ const placeOrderRazorpay = async(req,res) => {
         // For USD: If using USD, amount is in cents
         const razorpayOptions = {
             amount: Math.round(finalAmount * 100), // Convert to smallest currency unit
-            currency: "INR", // Change to "USD" if needed
+            currency: "USD", // Change to "USD" if needed
             receipt: newOrder._id.toString(),
             notes: {
                 orderNumber: orderNumber,

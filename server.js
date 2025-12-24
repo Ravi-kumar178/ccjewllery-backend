@@ -254,7 +254,7 @@ const swaggerDocument = {
                                             properties: {
                                                 id: { type: 'string', example: 'order_ABC123xyz' },
                                                 amount: { type: 'number', example: 150000, description: 'Amount in paise (multiply by 100)' },
-                                                currency: { type: 'string', example: 'INR' }
+                                                currency: { type: 'string', example: 'USD' }
                                             }
                                         },
                                         key_id: { type: 'string', example: 'rzp_test_xxxxx', description: 'Use this to initialize Razorpay checkout on frontend' }
