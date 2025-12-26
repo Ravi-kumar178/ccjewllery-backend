@@ -5,9 +5,8 @@ import https from 'https'
 import { sendEmail } from '../Config/email.js'
 import Razorpay from 'razorpay'
 import crypto from 'crypto'
-import ApiContracts from 'authorizenet/lib/apicontracts.js'
-import ApiControllers from 'authorizenet/lib/apicontrollers.js'
-import SDKConstants from 'authorizenet/lib/constants.js'
+import pkg from 'authorizenet'
+const { APIContracts: ApiContracts, APIControllers: ApiControllers } = pkg
 
 //global variable
 const deliveryCharge = 10
@@ -222,11 +221,15 @@ const processAuthorizeNetPayment = (paymentData) => {
         const controller = new ApiControllers.CreateTransactionController(createRequest.getJSON());
         
         // Set environment based on mode
+        // Using direct URLs since SDK constants may not be available in ES modules
+        const PRODUCTION_ENDPOINT = 'https://api.authorize.net/xml/v1/request.api';
+        const SANDBOX_ENDPOINT = 'https://apitest.authorize.net/xml/v1/request.api';
+        
         if (AUTHNET_MODE === 'production') {
-            controller.setEnvironment(SDKConstants.endpoint.production);
+            controller.setEnvironment(PRODUCTION_ENDPOINT);
             console.log('💳 Environment: PRODUCTION (api.authorize.net)');
         } else {
-            controller.setEnvironment(SDKConstants.endpoint.sandbox);
+            controller.setEnvironment(SANDBOX_ENDPOINT);
             console.log('💳 Environment: SANDBOX (apitest.authorize.net)');
         }
 
