@@ -5,6 +5,9 @@ import https from 'https'
 import { sendEmail } from '../Config/email.js'
 import Razorpay from 'razorpay'
 import crypto from 'crypto'
+import ApiContracts from 'authorizenet/lib/apicontracts.js'
+import ApiControllers from 'authorizenet/lib/apicontrollers.js'
+import SDKConstants from 'authorizenet/lib/constants.js'
 
 //global variable
 const deliveryCharge = 10
@@ -152,200 +155,177 @@ const generateOrderEmailHTML = async (order, items) => {
 }
 
 // Authorize.Net configuration
-const AUTHNET_LOGIN_ID = process.env.AUTHNET_LOGIN_ID || 'SANDBOX_LOGIN'
-const AUTHNET_TRANSACTION_KEY = process.env.AUTHNET_TRANSACTION_KEY || 'SANDBOX_KEY'
+const AUTHNET_LOGIN_ID = process.env.AUTHNET_LOGIN_ID
+const AUTHNET_TRANSACTION_KEY = process.env.AUTHNET_TRANSACTION_KEY
 const AUTHNET_MODE = process.env.AUTHNET_MODE || 'sandbox' // 'sandbox' or 'production'
-const AUTHNET_ENDPOINT = AUTHNET_MODE === 'production' 
-  ? 'api.authorize.net' 
-  : 'apitest.authorize.net'
 
-// Helper function to call Authorize.Net API
-const callAuthorizeNet = (payload) => {
+// Helper function to process payment using Official Authorize.Net SDK
+const processAuthorizeNetPayment = (paymentData) => {
     return new Promise((resolve, reject) => {
-        const postData = JSON.stringify(payload)
-        console.log('Authorize.Net Request:', postData.substring(0, 200))
+        console.log(`\n💳 ===== AUTHORIZE.NET PAYMENT (${AUTHNET_MODE.toUpperCase()} MODE) =====`);
+        console.log(`💳 API Login ID: ${AUTHNET_LOGIN_ID ? AUTHNET_LOGIN_ID.substring(0, 5) + '...' : 'NOT SET'}`);
+        console.log(`💳 Amount: $${paymentData.amount}`);
+        console.log(`💳 Customer: ${paymentData.firstName} ${paymentData.lastName}`);
         
-        // For sandbox mode, ALWAYS use simulation (Authorize.Net JSON API endpoint returns 404)
-        // This ensures testing works without real API calls
-        if (AUTHNET_MODE === 'sandbox') {
-            console.log('SANDBOX MODE - Using simulation (Authorize.Net JSON API endpoint not available)')
-            console.log('This will simulate payment responses based on test card numbers')
-            // Simulate Authorize.Net response based on test card
-            const cardNumber = payload.createTransactionRequest.transactionRequest.payment.creditCard.cardNumber.replace(/\s/g, '')
-            
-            setTimeout(() => {
-                if (cardNumber === '4111111111111111') {
-                    // Approved test card
-                    resolve({
-                        transactionResponse: {
-                            responseCode: '1',
-                            transId: 'SIM_' + Date.now(),
-                            responseReason: 'This transaction has been approved.',
-                            messages: {
-                                message: [{
-                                    code: '1',
-                                    description: 'This transaction has been approved.'
-                                }]
-                            }
-                        }
-                    })
-                } else if (cardNumber === '4222222222222220') {
-                    // Declined test card
-                    resolve({
-                        transactionResponse: {
-                            responseCode: '2',
-                            transId: null,
-                            responseReason: 'This transaction has been declined.',
-                            errors: {
-                                error: [{
-                                    errorCode: '2',
-                                    errorText: 'This transaction has been declined.'
-                                }]
-                            }
-                        }
-                    })
-                } else {
-                    // Default to approved for any other test card in sandbox simulation
-                    resolve({
-                        transactionResponse: {
-                            responseCode: '1',
-                            transId: 'SIM_' + Date.now(),
-                            responseReason: 'This transaction has been approved (sandbox simulation).'
-                        }
-                    })
-                }
-            }, 500)
-            return
+        // Check if credentials are configured
+        if (!AUTHNET_LOGIN_ID || !AUTHNET_TRANSACTION_KEY) {
+            console.error('❌ Authorize.Net credentials not configured!');
+            return reject(new Error('Authorize.Net credentials not configured. Please set AUTHNET_LOGIN_ID and AUTHNET_TRANSACTION_KEY in environment variables.'));
         }
+
+        // Set up merchant authentication
+        const merchantAuthenticationType = new ApiContracts.MerchantAuthenticationType();
+        merchantAuthenticationType.setName(AUTHNET_LOGIN_ID);
+        merchantAuthenticationType.setTransactionKey(AUTHNET_TRANSACTION_KEY);
+
+        // Set up credit card
+        const creditCard = new ApiContracts.CreditCardType();
+        creditCard.setCardNumber(paymentData.cardNumber.replace(/\s/g, ''));
+        creditCard.setExpirationDate(paymentData.expirationDate); // Format: YYYY-MM
+        creditCard.setCardCode(paymentData.cardCVV);
+
+        // Set up payment type
+        const paymentType = new ApiContracts.PaymentType();
+        paymentType.setCreditCard(creditCard);
+
+        // Set up billing address
+        const billTo = new ApiContracts.CustomerAddressType();
+        billTo.setFirstName(paymentData.firstName);
+        billTo.setLastName(paymentData.lastName);
+        billTo.setAddress(paymentData.street);
+        billTo.setCity(paymentData.city);
+        billTo.setState(paymentData.state);
+        billTo.setZip(paymentData.zipCode);
+        billTo.setCountry(paymentData.country);
+        billTo.setPhoneNumber(paymentData.phone);
+        billTo.setEmail(paymentData.email);
+
+        // Set up order details
+        const orderDetails = new ApiContracts.OrderType();
+        orderDetails.setInvoiceNumber(paymentData.orderNumber);
+        orderDetails.setDescription(`Order ${paymentData.orderNumber}`);
+
+        // Set up transaction request
+        const transactionRequestType = new ApiContracts.TransactionRequestType();
+        transactionRequestType.setTransactionType(ApiContracts.TransactionTypeEnum.AUTHCAPTURETRANSACTION);
+        transactionRequestType.setPayment(paymentType);
+        transactionRequestType.setAmount(paymentData.amount);
+        transactionRequestType.setBillTo(billTo);
+        transactionRequestType.setOrder(orderDetails);
+
+        // Create the full request
+        const createRequest = new ApiContracts.CreateTransactionRequest();
+        createRequest.setMerchantAuthentication(merchantAuthenticationType);
+        createRequest.setTransactionRequest(transactionRequestType);
+
+        // Create controller and set environment
+        const controller = new ApiControllers.CreateTransactionController(createRequest.getJSON());
         
-        // Production mode - attempt real API call
-        // Note: Authorize.Net JSON API endpoint structure may vary
-        // If you get 404 errors, Authorize.Net may require XML API or different endpoint
+        // Set environment based on mode
         if (AUTHNET_MODE === 'production') {
-            console.log('PRODUCTION MODE - Attempting real payment through Authorize.Net')
-            console.warn('WARNING: If you get 404 errors, Authorize.Net JSON API may not be available.')
-            console.warn('Consider using XML API or contact Authorize.Net support for correct endpoint.')
+            controller.setEnvironment(SDKConstants.endpoint.production);
+            console.log('💳 Environment: PRODUCTION (api.authorize.net)');
         } else {
-            // Should not reach here in sandbox mode (should use simulation above)
-            console.log('SANDBOX MODE - Falling back to simulation due to API limitations')
-            const cardNumber = payload.createTransactionRequest.transactionRequest.payment.creditCard.cardNumber.replace(/\s/g, '')
-            setTimeout(() => {
-                resolve({
-                    transactionResponse: {
-                        responseCode: '1',
-                        transId: 'SIM_' + Date.now(),
-                        responseReason: 'This transaction has been approved (sandbox simulation).'
-                    }
-                })
-            }, 500)
-            return
+            controller.setEnvironment(SDKConstants.endpoint.sandbox);
+            console.log('💳 Environment: SANDBOX (apitest.authorize.net)');
         }
-        
-        // Authorize.Net JSON API endpoint (may not be available - returns 404)
-        // Alternative: Use XML API at /xml/v1/request.api
-        const options = {
-            hostname: AUTHNET_ENDPOINT,
-            port: 443,
-            path: '/v1/request.json', // This endpoint returns 404 - may need to use XML API instead
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(postData),
-                'Accept': 'application/json'
+
+        console.log('💳 Sending payment request...');
+
+        // Execute the request
+        controller.execute(() => {
+            const apiResponse = controller.getResponse();
+            const response = new ApiContracts.CreateTransactionResponse(apiResponse);
+
+            console.log('💳 Response received');
+
+            if (response !== null) {
+                if (response.getMessages().getResultCode() === ApiContracts.MessageTypeEnum.OK) {
+                    const transactionResponse = response.getTransactionResponse();
+                    
+                    if (transactionResponse !== null) {
+                        const responseCode = transactionResponse.getResponseCode();
+                        
+                        if (responseCode === '1') {
+                            // Transaction approved
+                            const transId = transactionResponse.getTransId();
+                            const authCode = transactionResponse.getAuthCode();
+                            
+                            console.log(`✅ Transaction APPROVED!`);
+                            console.log(`   Transaction ID: ${transId}`);
+                            console.log(`   Auth Code: ${authCode}`);
+                            console.log(`💳 ============================================\n`);
+                            
+                            resolve({
+                                success: true,
+                                transactionResponse: {
+                                    responseCode: responseCode,
+                                    transId: transId,
+                                    authCode: authCode,
+                                    responseReason: 'This transaction has been approved.'
+                                }
+                            });
+                        } else if (responseCode === '2') {
+                            // Transaction declined
+                            const errors = transactionResponse.getErrors();
+                            const errorText = errors ? errors.getError()[0].getErrorText() : 'Transaction declined';
+                            
+                            console.log(`❌ Transaction DECLINED: ${errorText}`);
+                            console.log(`💳 ============================================\n`);
+                            
+                            resolve({
+                                success: false,
+                                transactionResponse: {
+                                    responseCode: responseCode,
+                                    transId: null,
+                                    responseReason: errorText,
+                                    errors: { error: [{ errorText: errorText }] }
+                                }
+                            });
+                        } else {
+                            // Other response code (held, error, etc.)
+                            const errors = transactionResponse.getErrors();
+                            const errorText = errors ? errors.getError()[0].getErrorText() : 'Transaction error';
+                            
+                            console.log(`⚠️ Transaction response code: ${responseCode}`);
+                            console.log(`   Message: ${errorText}`);
+                            console.log(`💳 ============================================\n`);
+                            
+                            resolve({
+                                success: false,
+                                transactionResponse: {
+                                    responseCode: responseCode,
+                                    transId: null,
+                                    responseReason: errorText
+                                }
+                            });
+                        }
+                    } else {
+                        console.log(`❌ No transaction response returned`);
+                        reject(new Error('No transaction response from Authorize.Net'));
+                    }
+                } else {
+                    // API error
+                    const errors = response.getMessages().getMessage();
+                    const errorCode = errors[0].getCode();
+                    const errorText = errors[0].getText();
+                    
+                    console.log(`❌ API Error: ${errorCode} - ${errorText}`);
+                    console.log(`💳 ============================================\n`);
+                    
+                    // Check for specific errors
+                    if (errorCode === 'E00007') {
+                        reject(new Error(`Invalid Authorize.Net credentials. Please check your AUTHNET_LOGIN_ID and AUTHNET_TRANSACTION_KEY.`));
+                    } else {
+                        reject(new Error(`Authorize.Net API Error: ${errorCode} - ${errorText}`));
+                    }
+                }
+            } else {
+                console.log(`❌ Null response from Authorize.Net`);
+                reject(new Error('Null response from Authorize.Net. Please check your network connection and credentials.'));
             }
-        }
-
-        console.log('Making request to:', `https://${AUTHNET_ENDPOINT}${options.path}`)
-        console.log('Request payload length:', Buffer.byteLength(postData))
-
-        const req = https.request(options, (res) => {
-            let data = ''
-            let statusCode = res.statusCode
-            
-            // Log response headers immediately
-            console.log('Response Status Code:', statusCode)
-            console.log('Response Headers:', JSON.stringify(res.headers, null, 2))
-            
-            res.on('data', (chunk) => { 
-                const chunkStr = chunk.toString()
-                data += chunkStr
-                console.log('Received chunk, length:', chunkStr.length, 'Total so far:', data.length)
-            })
-            
-            res.on('end', () => {
-                console.log('Response complete. Total data length:', data.length)
-                console.log('Raw response (first 1000 chars):', data.substring(0, 1000))
-                
-                if (statusCode === 404) {
-                    console.error('Authorize.Net API returned 404 - Endpoint not found')
-                    console.error('This means the JSON API endpoint may not be available.')
-                    console.error('Options:')
-                    console.error('1. Use sandbox simulation mode (set AUTHNET_MODE=sandbox)')
-                    console.error('2. Use Authorize.Net XML API instead of JSON API')
-                    console.error('3. Contact Authorize.Net support for correct JSON API endpoint')
-                    return reject(new Error('Authorize.Net JSON API endpoint not found (404). For sandbox testing, use simulation mode. For production, you may need to use XML API or contact Authorize.Net support.'))
-                }
-                
-                if (statusCode !== 200 && statusCode !== 201) {
-                    console.error('Authorize.Net API Error - Status:', statusCode)
-                    console.error('Full Response:', data)
-                    return reject(new Error(`Authorize.Net API returned status ${statusCode}. Response: ${data.substring(0, 500)}`))
-                }
-                
-                if (!data || data.trim().length === 0) {
-                    console.error('Authorize.Net returned empty response')
-                    console.error('This usually means:')
-                    console.error('1. Invalid API credentials')
-                    console.error('2. Wrong API endpoint')
-                    console.error('3. Network/firewall blocking the request')
-                    console.error('4. Authorize.Net server issue')
-                    console.error('5. Credentials might be for XML API, not JSON API')
-                    
-                    // If in sandbox mode and we get empty response, suggest using simulation
-                    if (AUTHNET_MODE === 'sandbox') {
-                        console.warn('Since you are in SANDBOX mode, consider using simulation mode by setting:')
-                        console.warn('AUTHNET_LOGIN_ID=SANDBOX_LOGIN')
-                        console.warn('AUTHNET_TRANSACTION_KEY=SANDBOX_KEY')
-                    }
-                    
-                    return reject(new Error('Authorize.Net returned empty response. Please check your API credentials and ensure you are using the correct sandbox/production endpoint. If using sandbox, you can use simulation mode with placeholder credentials.'))
-                }
-                
-                try {
-                    const parsed = JSON.parse(data)
-                    console.log('Successfully parsed JSON response')
-                    console.log('Response structure:', Object.keys(parsed))
-                    resolve(parsed)
-                } catch (e) {
-                    console.error('Failed to parse JSON. Error:', e.message)
-                    console.error('Raw response (full):', data)
-                    console.error('Response length:', data.length)
-                    console.error('Response type:', typeof data)
-                    reject(new Error(`Failed to parse response as JSON: ${e.message}. Response length: ${data.length}. First 500 chars: ${data.substring(0, 500)}`))
-                }
-            })
-        })
-
-        req.on('error', (error) => {
-            console.error('Authorize.Net request error:', error)
-            console.error('Error code:', error.code)
-            console.error('Error message:', error.message)
-            reject(new Error(`Network error connecting to Authorize.Net: ${error.message} (${error.code})`))
-        })
-        
-        req.on('timeout', () => {
-            console.error('Request timeout')
-            req.destroy()
-            reject(new Error('Authorize.Net request timeout after 30 seconds'))
-        })
-        
-        req.setTimeout(30000)
-        
-        req.write(postData)
-        req.end()
-        
-        console.log('Request sent, waiting for response...')
-    })
+        });
+    });
 }
 
 //placing orders using cod method
@@ -825,43 +805,28 @@ const placeOrderAuthNet = async(req,res) => {
         const newOrder = new orderModel(orderData);
         await newOrder.save();
 
-        // Call Authorize.Net API
-        const payload = {
-            createTransactionRequest: {
-                merchantAuthentication: {
-                    name: AUTHNET_LOGIN_ID,
-                    transactionKey: AUTHNET_TRANSACTION_KEY
-                },
-                refId: newOrder._id.toString(),
-                transactionRequest: {
-                    transactionType: "authCaptureTransaction",
-                    amount: finalAmount.toFixed(2),
-                    payment: {
-                        creditCard: {
-                            cardNumber: cardNumber.replace(/\s/g, ''),
-                            expirationDate: `20${expYear}-${expMonth}`,
-                            cardCode: cardCVV
-                        }
-                    },
-                    billTo: {
-                        firstName,
-                        lastName,
-                        address: street,
-                        city,
-                        state,
-                        zip: zipCode,
-                        country,
-                        phoneNumber: phone,
-                        email
-                    }
-                }
-            }
-        }
+        // Process payment using Official Authorize.Net SDK
+        const paymentData = {
+            cardNumber: cardNumber,
+            expirationDate: `20${expYear}-${expMonth}`, // Format: YYYY-MM
+            cardCVV: cardCVV,
+            amount: finalAmount.toFixed(2),
+            firstName,
+            lastName,
+            email,
+            street,
+            city,
+            state,
+            zipCode,
+            country,
+            phone,
+            orderNumber
+        };
 
-        const response = await callAuthorizeNet(payload);
+        const response = await processAuthorizeNetPayment(paymentData);
         
         // Check if transaction was successful
-        if(response?.transactionResponse?.responseCode === "1") {
+        if(response?.success && response?.transactionResponse?.responseCode === "1") {
             // Success - Payment approved
             const transactionId = response.transactionResponse.transId;
             const responseCode = response.transactionResponse.responseCode;
