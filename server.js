@@ -519,7 +519,7 @@ const swaggerDocument = {
             get: {
                 tags: ["Admin Dashboard"],
                 summary: "Get dashboard statistics (admin only)",
-                description: "Returns statistics for the admin dashboard including total orders, revenue, products, and recent activity. Requires admin authentication.",
+                description: "Returns statistics for the admin dashboard including total orders, revenue, products, and unique users. Requires admin authentication.",
                 security: [{ bearerAuth: [] }],
                 responses: {
                     "200": {
@@ -533,16 +533,10 @@ const swaggerDocument = {
                                         stats: {
                                             type: "object",
                                             properties: {
-                                                totalOrders: { type: "number", example: 150 },
-                                                totalRevenue: { type: "number", example: 45000.50 },
-                                                totalProducts: { type: "number", example: 45 },
-                                                totalUsers: { type: "number", example: 320 },
-                                                pendingOrders: { type: "number", example: 12 },
-                                                completedOrders: { type: "number", example: 138 },
-                                                recentOrders: {
-                                                    type: "array",
-                                                    items: { type: "object" }
-                                                }
+                                                revenue: { type: "number", example: 45000.50 },
+                                                orders: { type: "number", example: 150 },
+                                                products: { type: "number", example: 45 },
+                                                users: { type: "number", example: 320 }
                                             }
                                         }
                                     }
@@ -555,6 +549,83 @@ const swaggerDocument = {
                     },
                     "500": {
                         description: "Server error"
+                    }
+                }
+            }
+        },
+        "/api/admin/users": {
+            get: {
+                tags: ["Admin Dashboard"],
+                summary: "Get all users with statistics (admin only)",
+                description: "Returns a list of all registered users with their order statistics including total orders, total spent, status (VIP/Regular/New), and join date. Requires admin authentication.",
+                security: [{ bearerAuth: [] }],
+                responses: {
+                    "200": {
+                        description: "Users list retrieved successfully",
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        success: { type: "boolean" },
+                                        users: {
+                                            type: "array",
+                                            items: {
+                                                type: "object",
+                                                properties: {
+                                                    _id: { type: "string", example: "507f1f77bcf86cd799439011" },
+                                                    name: { type: "string", example: "John Doe" },
+                                                    email: { type: "string", example: "john@example.com" },
+                                                    orders: { type: "number", example: 5 },
+                                                    spent: { type: "number", example: 1250.50 },
+                                                    joined: { type: "string", format: "date", example: "2024-01-15" },
+                                                    status: { type: "string", enum: ["VIP", "Regular", "New"], example: "Regular" },
+                                                    profileImage: { type: "string", example: "https://example.com/image.jpg" }
+                                                }
+                                            }
+                                        },
+                                        stats: {
+                                            type: "object",
+                                            properties: {
+                                                totalUsers: { type: "number", example: 320 },
+                                                activeUsers: { type: "number", example: 245 },
+                                                vipUsers: { type: "number", example: 45 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        description: "Unauthorized - Admin authentication required"
+                    },
+                    "500": {
+                        description: "Server error"
+                    }
+                }
+            }
+        },
+        "/api/admin/test": {
+            get: {
+                tags: ["Admin Dashboard"],
+                summary: "Test admin routes (admin only)",
+                description: "Simple test endpoint to verify admin routes are working. Requires admin authentication.",
+                security: [{ bearerAuth: [] }],
+                responses: {
+                    "200": {
+                        description: "Route is working",
+                        content: {
+                            "application/json": {
+                                schema: {
+                                    type: "object",
+                                    properties: {
+                                        success: { type: "boolean", example: true },
+                                        message: { type: "string", example: "Admin routes are working!" }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

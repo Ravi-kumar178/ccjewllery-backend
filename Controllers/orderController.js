@@ -153,6 +153,132 @@ const generateOrderEmailHTML = async (order, items) => {
     `;
 }
 
+// Helper function to generate admin notification email HTML
+const generateAdminOrderEmailHTML = async (order, items) => {
+    // Get product details for items
+    const itemDetails = await Promise.all(
+        items.map(async (item) => {
+            try {
+                const product = await productModel.findById(item.productId);
+                return {
+                    name: product?.name || 'Product',
+                    price: product?.price || 0,
+                    quantity: item.quantity || 1,
+                    image: product?.image?.[0] || ''
+                };
+            } catch (e) {
+                return {
+                    name: 'Product',
+                    price: 0,
+                    quantity: item.quantity || 1,
+                    image: ''
+                };
+            }
+        })
+    );
+
+    const subtotal = itemDetails.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const tax = subtotal * 0.08;
+    const total = order.amount;
+
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .order-info { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #2563eb; }
+            .item { display: flex; padding: 15px 0; border-bottom: 1px solid #eee; }
+            .item:last-child { border-bottom: none; }
+            .item-image { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; margin-right: 15px; }
+            .item-details { flex: 1; }
+            .item-name { font-weight: bold; margin-bottom: 5px; }
+            .item-price { color: #2563eb; font-weight: bold; }
+            .summary { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; }
+            .summary-row { display: flex; justify-content: space-between; padding: 10px 0; }
+            .summary-total { border-top: 2px solid #2563eb; padding-top: 15px; font-size: 1.2em; font-weight: bold; }
+            .alert { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 8px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>📦 New Order Received</h1>
+                <p>Order #${order.orderNumber}</p>
+            </div>
+            <div class="content">
+                <div class="alert">
+                    <strong>⚠️ Action Required:</strong> Process this order and update status in admin dashboard.
+                </div>
+
+                <div class="order-info">
+                    <h2>Order Details</h2>
+                    <p><strong>Order Number:</strong> ${order.orderNumber}</p>
+                    <p><strong>Order ID:</strong> ${order._id}</p>
+                    <p><strong>Transaction ID:</strong> ${order.transactionId || 'N/A'}</p>
+                    <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
+                    <p><strong>Payment Status:</strong> ${order.paymentStatus === 'completed' ? '✅ Paid' : '⏳ Pending'}</p>
+                    <p><strong>Order Status:</strong> ${order.status}</p>
+                    <p><strong>Order Date:</strong> ${new Date(order.date).toLocaleString()}</p>
+                    <p><strong>Total Amount:</strong> <strong style="color: #2563eb; font-size: 1.2em;">$${total.toLocaleString()}</strong></p>
+                </div>
+
+                <div class="order-info">
+                    <h2>Customer Information</h2>
+                    <p><strong>Name:</strong> ${order.firstName} ${order.lastName}</p>
+                    <p><strong>Email:</strong> ${order.email}</p>
+                    <p><strong>Phone:</strong> ${order.phone}</p>
+                </div>
+
+                <div class="order-info">
+                    <h2>Shipping Address</h2>
+                    <p>${order.firstName} ${order.lastName}</p>
+                    <p>${order.street}</p>
+                    <p>${order.city}, ${order.state} ${order.zipCode}</p>
+                    <p>${order.country}</p>
+                </div>
+
+                <h3>Order Items</h3>
+                ${itemDetails.map(item => `
+                    <div class="item">
+                        ${item.image ? `<img src="${item.image}" alt="${item.name}" class="item-image" />` : ''}
+                        <div class="item-details">
+                            <div class="item-name">${item.name}</div>
+                            <div>Quantity: ${item.quantity}</div>
+                            <div class="item-price">$${(item.price * item.quantity).toLocaleString()}</div>
+                        </div>
+                    </div>
+                `).join('')}
+
+                <div class="summary">
+                    <div class="summary-row">
+                        <span>Subtotal:</span>
+                        <span>$${subtotal.toLocaleString()}</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Tax:</span>
+                        <span>$${tax.toFixed(2)}</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Shipping:</span>
+                        <span>Free</span>
+                    </div>
+                    <div class="summary-row summary-total">
+                        <span>Total:</span>
+                        <span>$${total.toLocaleString()}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+}
+
 // Authorize.Net configuration
 const AUTHNET_LOGIN_ID = process.env.AUTHNET_LOGIN_ID
 const AUTHNET_TRANSACTION_KEY = process.env.AUTHNET_TRANSACTION_KEY
@@ -673,30 +799,51 @@ const verifyRazorpay = async (req, res) => {
             // Fetch updated order
             const updatedOrder = await orderModel.findById(order._id);
 
-            // Send order confirmation email
+            // Send order confirmation emails (customer + admin)
             try {
                 console.log(`\n📧 ===== EMAIL SENDING PROCESS START =====`);
-                console.log(`📧 Preparing to send order confirmation email for Order #${order.orderNumber}...`);
-                console.log(`📧 Customer Email: ${order.email}`);
+                console.log(`📧 Preparing to send order confirmation emails for Order #${order.orderNumber}...`);
                 
                 // Get cart for email
                 const cart = await Cart.findById(order.cartId);
-                const emailHTML = await generateOrderEmailHTML(updatedOrder, cart?.items || order.items);
+                const customerEmailHTML = await generateOrderEmailHTML(updatedOrder, cart?.items || order.items);
+                const adminEmailHTML = await generateAdminOrderEmailHTML(updatedOrder, cart?.items || order.items);
                 
-                const emailResult = await sendEmail({
-                    from: process.env.EMAIL_FROM || 'noreply@ccjewllery.com',
+                const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
+                
+                // Send email to customer
+                const customerEmailResult = await sendEmail({
+                    from: emailFrom,
                     to: order.email,
                     subject: `Order Confirmation - ${order.orderNumber} (Payment Successful)`,
-                    html: emailHTML
+                    html: customerEmailHTML
                 });
 
-                if (emailResult.success) {
-                    console.log(`✅ Order confirmation email sent successfully to ${order.email}`);
+                if (customerEmailResult.success) {
+                    console.log(`✅ Order confirmation email sent successfully to customer: ${order.email}`);
                 } else {
-                    console.warn(`⚠️ Email service not configured or failed:`, emailResult.error);
+                    console.warn(`⚠️ Failed to send email to customer:`, customerEmailResult.error);
+                }
+
+                // Send email to admin
+                if (process.env.ADMIN_EMAIL) {
+                    const adminEmailResult = await sendEmail({
+                        from: emailFrom,
+                        to: process.env.ADMIN_EMAIL,
+                        subject: `New Order #${order.orderNumber} - ${order.firstName} ${order.lastName} - $${order.amount.toLocaleString()}`,
+                        html: adminEmailHTML
+                    });
+
+                    if (adminEmailResult.success) {
+                        console.log(`✅ Order notification email sent successfully to admin: ${process.env.ADMIN_EMAIL}`);
+                    } else {
+                        console.warn(`⚠️ Failed to send email to admin:`, adminEmailResult.error);
+                    }
+                } else {
+                    console.warn(`⚠️ ADMIN_EMAIL not configured. Admin notification email skipped.`);
                 }
             } catch (emailError) {
-                console.error('❌ Failed to send order confirmation email:', emailError.message);
+                console.error('❌ Failed to send order confirmation emails:', emailError.message);
                 // Don't fail the order if email fails
             }
 
@@ -854,49 +1001,75 @@ const placeOrderAuthNet = async(req,res) => {
             // Fetch updated order
             const updatedOrder = await orderModel.findById(newOrder._id);
 
-            // Send order confirmation email
+            // Send order confirmation emails (customer + admin)
             try {
                 console.log(`\n📧 ===== EMAIL SENDING PROCESS START =====`);
-                console.log(`📧 Preparing to send order confirmation email for Order #${orderNumber}...`);
+                console.log(`📧 Preparing to send order confirmation emails for Order #${orderNumber}...`);
                 console.log(`📧 Customer Email: ${email}`);
                 console.log(`📧 Checking email configuration...`);
                 
-                const emailHTML = await generateOrderEmailHTML(updatedOrder, cart.items);
-                console.log(`📧 Email HTML generated (length: ${emailHTML.length} characters)`);
+                const customerEmailHTML = await generateOrderEmailHTML(updatedOrder, cart.items);
+                const adminEmailHTML = await generateAdminOrderEmailHTML(updatedOrder, cart.items);
+                console.log(`📧 Email HTML generated`);
                 
                 const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
                 console.log(`📧 Email From: ${emailFrom}`);
-                console.log(`📧 Email To: ${email}`);
-                console.log(`📧 Email Subject: Order Confirmation - ${orderNumber} (Payment Successful)`);
                 
-                const emailResult = await sendEmail({
+                // Send email to customer
+                const customerEmailResult = await sendEmail({
                     from: emailFrom,
                     to: email,
                     subject: `Order Confirmation - ${orderNumber} (Payment Successful)`,
-                    html: emailHTML
+                    html: customerEmailHTML
                 });
                 
-                console.log(`📧 Email send result:`, JSON.stringify(emailResult, null, 2));
+                console.log(`📧 Customer email send result:`, JSON.stringify(customerEmailResult, null, 2));
                 
-                if (emailResult.success) {
-                    console.log(`\n✅ ===== EMAIL SENT SUCCESSFULLY =====`);
-                    console.log(`✅ Order confirmation email sent successfully!`);
+                if (customerEmailResult.success) {
+                    console.log(`\n✅ ===== CUSTOMER EMAIL SENT SUCCESSFULLY =====`);
+                    console.log(`✅ Order confirmation email sent successfully to customer!`);
                     console.log(`   📬 To: ${email}`);
                     console.log(`   📋 Order Number: ${orderNumber}`);
                     console.log(`   💳 Transaction ID: ${transactionId}`);
                     console.log(`   💰 Amount: $${finalAmount.toLocaleString()}`);
                     console.log(`   ✅ Payment Status: Paid`);
-                    console.log(`✅ ======================================\n`);
+                    console.log(`✅ ===========================================\n`);
                 } else {
-                    console.log(`\n⚠️  ===== EMAIL SENDING FAILED =====`);
+                    console.log(`\n⚠️  ===== CUSTOMER EMAIL SENDING FAILED =====`);
                     console.warn(`⚠️  Email service not configured or failed`);
-                    console.warn(`   Error:`, emailResult.error);
-                    console.warn(`   This is normal if RESEND_API_KEY is not set in .env`);
-                    console.warn(`⚠️  ====================================\n`);
+                    console.warn(`   Error:`, customerEmailResult.error);
+                    console.warn(`⚠️  =========================================\n`);
+                }
+
+                // Send email to admin
+                if (process.env.ADMIN_EMAIL) {
+                    const adminEmailResult = await sendEmail({
+                        from: emailFrom,
+                        to: process.env.ADMIN_EMAIL,
+                        subject: `New Order #${orderNumber} - ${firstName} ${lastName} - $${finalAmount.toLocaleString()}`,
+                        html: adminEmailHTML
+                    });
+
+                    if (adminEmailResult.success) {
+                        console.log(`\n✅ ===== ADMIN EMAIL SENT SUCCESSFULLY =====`);
+                        console.log(`✅ Order notification email sent successfully to admin!`);
+                        console.log(`   📬 To: ${process.env.ADMIN_EMAIL}`);
+                        console.log(`   📋 Order Number: ${orderNumber}`);
+                        console.log(`   👤 Customer: ${firstName} ${lastName}`);
+                        console.log(`   💰 Amount: $${finalAmount.toLocaleString()}`);
+                        console.log(`✅ =========================================\n`);
+                    } else {
+                        console.log(`\n⚠️  ===== ADMIN EMAIL SENDING FAILED =====`);
+                        console.warn(`⚠️  Failed to send email to admin:`, adminEmailResult.error);
+                        console.warn(`⚠️  ======================================\n`);
+                    }
+                } else {
+                    console.warn(`\n⚠️  ADMIN_EMAIL not configured. Admin notification email skipped.`);
+                    console.warn(`   Add ADMIN_EMAIL to your .env file to receive admin notifications.`);
                 }
             } catch (emailError) {
                 console.error(`\n❌ ===== EMAIL SENDING ERROR =====`);
-                console.error('❌ Failed to send order confirmation email:', emailError.message);
+                console.error('❌ Failed to send order confirmation emails:', emailError.message);
                 console.error('❌ Full error:', emailError);
                 console.error(`❌ ===================================\n`);
                 // Don't fail the order if email fails
