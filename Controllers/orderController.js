@@ -1367,4 +1367,377 @@ const testEmail = async (req, res) => {
     }
 }
 
-export {placeOrder, placeOrderRazorpay, verifyRazorpay, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail}
+// Test payment flow - simulates successful payment and sends both emails
+const testPayment = async (req, res) => {
+    try {
+        const { 
+            customerEmail, 
+            firstName = 'John', 
+            lastName = 'Doe',
+            amount = 299.99
+        } = req.body;
+        
+        if (!customerEmail) {
+            return res.status(400).json({
+                success: false,
+                message: "customerEmail is required"
+            });
+        }
+
+        console.log(`\n🧪 ===== TEST PAYMENT FLOW =====`);
+        console.log(`🧪 Customer Email: ${customerEmail}`);
+        console.log(`🧪 Amount: $${amount}`);
+        console.log(`🧪 This is a TEST payment - no real payment will be processed`);
+
+        // Generate test order number
+        const orderNumber = generateOrderNumber();
+        const transactionId = 'TEST-TXN-' + Date.now();
+
+        // Create mock order data (simulating successful payment)
+        const mockOrder = {
+            _id: 'test_order_' + Date.now(),
+            orderNumber: orderNumber,
+            transactionId: transactionId,
+            paymentMethod: 'Test Payment',
+            paymentStatus: 'completed',
+            status: 'Paid',
+            date: new Date(),
+            paymentDate: new Date(),
+            amount: Number(amount),
+            firstName: firstName,
+            lastName: lastName,
+            email: customerEmail,
+            street: '123 Test Street',
+            city: 'Test City',
+            state: 'TS',
+            zipCode: '12345',
+            country: 'United States',
+            phone: '+1-555-0123',
+            paymentDetails: {
+                gateway: 'TEST',
+                transactionId: transactionId,
+                responseCode: '1',
+                responseMessage: 'Test payment successful',
+                processedAt: new Date()
+            }
+        };
+
+        // Create mock cart items for email
+        const mockItems = [
+            {
+                productId: 'test_product_1',
+                quantity: 2
+            },
+            {
+                productId: 'test_product_2',
+                quantity: 1
+            }
+        ];
+
+        // Save test order to database (optional - you can skip this if you don't want test orders in DB)
+        // const newOrder = new orderModel(mockOrder);
+        // await newOrder.save();
+
+        const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
+        const adminEmail = process.env.ADMIN_EMAIL;
+        const results = {
+            customer: null,
+            admin: null,
+            order: mockOrder
+        };
+
+        // Send customer confirmation email
+        console.log(`\n📧 [1/2] Sending Customer Email...`);
+        try {
+            const customerEmailHTML = await generateOrderEmailHTML(mockOrder, mockItems);
+            const customerResult = await sendEmail({
+                from: emailFrom,
+                to: customerEmail,
+                subject: `[TEST] Order Confirmation - ${orderNumber} (Payment Successful)`,
+                html: customerEmailHTML
+            });
+
+            results.customer = {
+                success: customerResult.success,
+                email: customerEmail,
+                error: customerResult.error || null,
+                message: customerResult.success 
+                    ? '✅ Customer email sent successfully!' 
+                    : `❌ Failed: ${customerResult.error}`
+            };
+
+            if (customerResult.success) {
+                console.log(`✅ Customer email sent to: ${customerEmail}`);
+            } else {
+                console.log(`❌ Customer email failed: ${customerResult.error}`);
+            }
+        } catch (error) {
+            results.customer = {
+                success: false,
+                email: customerEmail,
+                error: error.message,
+                message: `❌ Error: ${error.message}`
+            };
+            console.error(`❌ Customer email error:`, error.message);
+        }
+
+        // Send admin notification email
+        if (adminEmail) {
+            console.log(`\n📧 [2/2] Sending Admin Email...`);
+            try {
+                const adminEmailHTML = await generateAdminOrderEmailHTML(mockOrder, mockItems);
+                const adminResult = await sendEmail({
+                    from: emailFrom,
+                    to: adminEmail,
+                    subject: `[TEST] New Order #${orderNumber} - ${firstName} ${lastName} - $${Number(amount).toLocaleString()}`,
+                    html: adminEmailHTML
+                });
+
+                results.admin = {
+                    success: adminResult.success,
+                    email: adminEmail,
+                    error: adminResult.error || null,
+                    message: adminResult.success 
+                        ? '✅ Admin email sent successfully!' 
+                        : `❌ Failed: ${adminResult.error}`
+                };
+
+                if (adminResult.success) {
+                    console.log(`✅ Admin email sent to: ${adminEmail}`);
+                } else {
+                    console.log(`❌ Admin email failed: ${adminResult.error}`);
+                }
+            } catch (error) {
+                results.admin = {
+                    success: false,
+                    email: adminEmail,
+                    error: error.message,
+                    message: `❌ Error: ${error.message}`
+                };
+                console.error(`❌ Admin email error:`, error.message);
+            }
+        } else {
+            results.admin = {
+                success: false,
+                email: null,
+                error: 'ADMIN_EMAIL not configured',
+                message: '⚠️ ADMIN_EMAIL not set in .env file. Admin email skipped.'
+            };
+            console.warn(`⚠️ ADMIN_EMAIL not configured. Skipping admin email.`);
+        }
+
+        console.log(`\n🧪 ===== TEST PAYMENT RESULTS =====`);
+        console.log(`🧪 Order Number: ${orderNumber}`);
+        console.log(`🧪 Transaction ID: ${transactionId}`);
+        console.log(`🧪 Customer Email: ${results.customer.success ? '✅ SUCCESS' : '❌ FAILED'}`);
+        console.log(`🧪 Admin Email: ${results.admin.email ? (results.admin.success ? '✅ SUCCESS' : '❌ FAILED') : '⚠️ NOT CONFIGURED'}`);
+        console.log(`🧪 ====================================\n`);
+
+        const overallSuccess = results.customer.success && (results.admin.email ? results.admin.success : true);
+
+        return res.json({
+            success: overallSuccess,
+            message: overallSuccess 
+                ? '✅ Test payment completed! Both emails sent successfully.' 
+                : '⚠️ Test payment completed but some emails failed. Check details below.',
+            testPayment: true,
+            order: {
+                orderNumber: orderNumber,
+                transactionId: transactionId,
+                amount: Number(amount),
+                paymentStatus: 'completed',
+                paymentMethod: 'Test Payment'
+            },
+            emailResults: {
+                customer: results.customer,
+                admin: results.admin
+            },
+            configuration: {
+                resendApiKey: !!process.env.RESEND_API_KEY,
+                emailFrom: emailFrom,
+                adminEmail: adminEmail || 'NOT CONFIGURED'
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Test payment error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
+
+// Test both customer and admin emails with actual order templates
+const testOrderEmails = async (req, res) => {
+    try {
+        const { customerEmail } = req.body;
+        
+        // Use provided email or default test email
+        const testCustomerEmail = customerEmail || 'test@example.com';
+        const adminEmail = process.env.ADMIN_EMAIL;
+
+        console.log(`\n🧪 ===== TESTING ORDER EMAILS (CUSTOMER + ADMIN) =====`);
+        console.log(`🧪 Customer Email: ${testCustomerEmail}`);
+        console.log(`🧪 Admin Email: ${adminEmail || 'NOT CONFIGURED ❌'}`);
+        console.log(`🧪 RESEND_API_KEY: ${process.env.RESEND_API_KEY ? 'CONFIGURED ✅' : 'NOT CONFIGURED ❌'}`);
+        console.log(`🧪 EMAIL_FROM: ${process.env.EMAIL_FROM || 'noreply@ccjewllery.com (default)'}`);
+
+        // Create mock order data for testing
+        const mockOrder = {
+            _id: 'test_order_id_123',
+            orderNumber: 'TEST-ORD-' + Date.now().toString(36).toUpperCase(),
+            transactionId: 'TEST-TXN-' + Date.now(),
+            paymentMethod: 'Test Payment',
+            paymentStatus: 'completed',
+            status: 'Paid',
+            date: new Date(),
+            amount: 299.99,
+            firstName: 'John',
+            lastName: 'Doe',
+            email: testCustomerEmail,
+            street: '123 Test Street',
+            city: 'Test City',
+            state: 'TS',
+            zipCode: '12345',
+            country: 'United States',
+            phone: '+1-555-0123'
+        };
+
+        // Create mock items for email
+        const mockItems = [
+            {
+                productId: 'test_product_1',
+                quantity: 2
+            },
+            {
+                productId: 'test_product_2',
+                quantity: 1
+            }
+        ];
+
+        const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
+        const results = {
+            customer: null,
+            admin: null
+        };
+
+        // Test 1: Send customer email
+        console.log(`\n📧 [1/2] Testing Customer Email...`);
+        try {
+            const customerEmailHTML = await generateOrderEmailHTML(mockOrder, mockItems);
+            const customerResult = await sendEmail({
+                from: emailFrom,
+                to: testCustomerEmail,
+                subject: `[TEST] Order Confirmation - ${mockOrder.orderNumber} (Payment Successful)`,
+                html: customerEmailHTML
+            });
+
+            results.customer = {
+                success: customerResult.success,
+                email: testCustomerEmail,
+                error: customerResult.error || null,
+                message: customerResult.success 
+                    ? '✅ Customer email sent successfully!' 
+                    : `❌ Failed: ${customerResult.error}`
+            };
+
+            if (customerResult.success) {
+                console.log(`✅ Customer email sent successfully to: ${testCustomerEmail}`);
+            } else {
+                console.log(`❌ Customer email failed: ${customerResult.error}`);
+            }
+        } catch (error) {
+            results.customer = {
+                success: false,
+                email: testCustomerEmail,
+                error: error.message,
+                message: `❌ Error: ${error.message}`
+            };
+            console.error(`❌ Customer email error:`, error.message);
+        }
+
+        // Test 2: Send admin email (if configured)
+        if (adminEmail) {
+            console.log(`\n📧 [2/2] Testing Admin Email...`);
+            try {
+                const adminEmailHTML = await generateAdminOrderEmailHTML(mockOrder, mockItems);
+                const adminResult = await sendEmail({
+                    from: emailFrom,
+                    to: adminEmail,
+                    subject: `[TEST] New Order #${mockOrder.orderNumber} - ${mockOrder.firstName} ${mockOrder.lastName} - $${mockOrder.amount.toLocaleString()}`,
+                    html: adminEmailHTML
+                });
+
+                results.admin = {
+                    success: adminResult.success,
+                    email: adminEmail,
+                    error: adminResult.error || null,
+                    message: adminResult.success 
+                        ? '✅ Admin email sent successfully!' 
+                        : `❌ Failed: ${adminResult.error}`
+                };
+
+                if (adminResult.success) {
+                    console.log(`✅ Admin email sent successfully to: ${adminEmail}`);
+                } else {
+                    console.log(`❌ Admin email failed: ${adminResult.error}`);
+                }
+            } catch (error) {
+                results.admin = {
+                    success: false,
+                    email: adminEmail,
+                    error: error.message,
+                    message: `❌ Error: ${error.message}`
+                };
+                console.error(`❌ Admin email error:`, error.message);
+            }
+        } else {
+            results.admin = {
+                success: false,
+                email: null,
+                error: 'ADMIN_EMAIL not configured',
+                message: '⚠️ ADMIN_EMAIL not set in .env file. Admin email test skipped.'
+            };
+            console.warn(`⚠️ ADMIN_EMAIL not configured. Skipping admin email test.`);
+        }
+
+        console.log(`\n🧪 ===== TEST RESULTS SUMMARY =====`);
+        console.log(`🧪 Customer Email: ${results.customer.success ? '✅ SUCCESS' : '❌ FAILED'}`);
+        console.log(`🧪 Admin Email: ${results.admin.email ? (results.admin.success ? '✅ SUCCESS' : '❌ FAILED') : '⚠️ NOT CONFIGURED'}`);
+        console.log(`🧪 ====================================\n`);
+
+        // Determine overall success
+        const overallSuccess = results.customer.success && (results.admin.email ? results.admin.success : true);
+
+        return res.json({
+            success: overallSuccess,
+            message: overallSuccess 
+                ? 'All configured emails sent successfully! Check your inboxes.' 
+                : 'Some emails failed. Check details below.',
+            results: {
+                customer: results.customer,
+                admin: results.admin,
+                configuration: {
+                    resendApiKey: !!process.env.RESEND_API_KEY,
+                    emailFrom: emailFrom,
+                    adminEmail: adminEmail || 'NOT CONFIGURED'
+                }
+            },
+            testOrder: {
+                orderNumber: mockOrder.orderNumber,
+                amount: mockOrder.amount,
+                customerName: `${mockOrder.firstName} ${mockOrder.lastName}`
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Test order emails error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
+
+export {placeOrder, placeOrderRazorpay, verifyRazorpay, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail, testOrderEmails, testPayment}
