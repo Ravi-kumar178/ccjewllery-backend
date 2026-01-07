@@ -775,7 +775,7 @@ const verifyRazorpay = async (req, res) => {
             await orderModel.findByIdAndUpdate(order._id, {
                 payment: true,
                 transactionId: razorpay_payment_id,
-                status: "Paid",
+                status: "Processing",
                 paymentStatus: 'completed',
                 paymentDate: new Date(),
                 paymentDetails: {
@@ -865,7 +865,7 @@ const verifyRazorpay = async (req, res) => {
         } else {
             // Signature verification failed - possible tampering
             await orderModel.findByIdAndUpdate(order._id, {
-                status: "Payment Failed",
+                status: "Order Placed",
                 paymentStatus: 'failed',
                 paymentDetails: {
                     gateway: 'RAZORPAY',
@@ -985,7 +985,7 @@ const placeOrderAuthNet = async(req,res) => {
             await orderModel.findByIdAndUpdate(newOrder._id, {
                 payment: true,
                 transactionId: transactionId,
-                status: "Paid",
+                status: "Processing",
                 paymentStatus: 'completed',
                 paymentDate: new Date(),
                 paymentDetails: {
@@ -1090,7 +1090,7 @@ const placeOrderAuthNet = async(req,res) => {
             const responseCode = response?.transactionResponse?.responseCode || '0';
             
             await orderModel.findByIdAndUpdate(newOrder._id, { 
-                status: "Payment Failed",
+                status: "Order Placed",
                 paymentStatus: 'failed',
                 paymentDetails: {
                     gateway: 'AUTHORIZE_NET',
@@ -1297,15 +1297,222 @@ const getOrderByOrderNumber = async(req,res) => {
     }
 }
 //placing orders using cod method
+// Helper function to generate status update email HTML
+const generateStatusUpdateEmailHTML = async (order, newStatus, oldStatus) => {
+    // Get product details for items
+    const itemDetails = await Promise.all(
+        order.items.map(async (item) => {
+            try {
+                const product = await productModel.findById(item.productId);
+                return {
+                    name: product?.name || 'Product',
+                    price: product?.price || 0,
+                    quantity: item.quantity || 1,
+                    image: product?.image?.[0] || ''
+                };
+            } catch (e) {
+                return {
+                    name: 'Product',
+                    price: 0,
+                    quantity: item.quantity || 1,
+                    image: ''
+                };
+            }
+        })
+    );
+
+    const subtotal = itemDetails.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const tax = subtotal * 0.08;
+    const total = order.amount;
+
+    // Status-specific messages
+    const statusMessages = {
+        'Order Placed': 'Your order has been placed and is being prepared.',
+        'Processing': 'Your order is now being processed. We\'re preparing your items for shipment.',
+        'Shipped': 'Great news! Your order has been shipped and is on its way to you.',
+        'Delivered': 'Your order has been delivered! We hope you love your purchase.'
+    };
+
+    const statusEmoji = {
+        'Order Placed': '📦',
+        'Processing': '⚙️',
+        'Shipped': '🚚',
+        'Delivered': '✅'
+    };
+
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #d4af37 0%, #b8941f 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .status-box { background: white; padding: 25px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #d4af37; text-align: center; }
+            .status-box h2 { margin: 0 0 10px 0; font-size: 24px; }
+            .status-message { color: #666; font-size: 16px; margin-top: 10px; }
+            .order-info { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #d4af37; }
+            .item { display: flex; padding: 15px 0; border-bottom: 1px solid #eee; }
+            .item:last-child { border-bottom: none; }
+            .item-image { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; margin-right: 15px; }
+            .item-details { flex: 1; }
+            .item-name { font-weight: bold; margin-bottom: 5px; }
+            .item-price { color: #d4af37; font-weight: bold; }
+            .summary { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; }
+            .summary-row { display: flex; justify-content: space-between; padding: 10px 0; }
+            .summary-total { border-top: 2px solid #d4af37; padding-top: 15px; font-size: 1.2em; font-weight: bold; }
+            .footer { text-align: center; color: #666; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>${statusEmoji[newStatus] || '📦'} Order Status Update</h1>
+                <p>Order #${order.orderNumber}</p>
+            </div>
+            <div class="content">
+                <div class="status-box">
+                    <h2>${newStatus}</h2>
+                    <p class="status-message">${statusMessages[newStatus] || 'Your order status has been updated.'}</p>
+                </div>
+
+                <div class="order-info">
+                    <h3>Order Details</h3>
+                    <p><strong>Order Number:</strong> ${order.orderNumber}</p>
+                    <p><strong>Status:</strong> <strong style="color: #d4af37;">${newStatus}</strong></p>
+                    ${oldStatus ? `<p><strong>Previous Status:</strong> ${oldStatus}</p>` : ''}
+                    <p><strong>Order Date:</strong> ${new Date(order.date).toLocaleString()}</p>
+                    <p><strong>Total Amount:</strong> <strong style="color: #d4af37; font-size: 1.2em;">$${total.toLocaleString()}</strong></p>
+                </div>
+
+                <h3>Order Items</h3>
+                ${itemDetails.map(item => `
+                    <div class="item">
+                        ${item.image ? `<img src="${item.image}" alt="${item.name}" class="item-image" />` : ''}
+                        <div class="item-details">
+                            <div class="item-name">${item.name}</div>
+                            <div>Quantity: ${item.quantity}</div>
+                            <div class="item-price">$${(item.price * item.quantity).toLocaleString()}</div>
+                        </div>
+                    </div>
+                `).join('')}
+
+                <div class="summary">
+                    <div class="summary-row">
+                        <span>Subtotal:</span>
+                        <span>$${subtotal.toLocaleString()}</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Tax:</span>
+                        <span>$${tax.toFixed(2)}</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Shipping:</span>
+                        <span>Free</span>
+                    </div>
+                    <div class="summary-row summary-total">
+                        <span>Total:</span>
+                        <span>$${total.toLocaleString()}</span>
+                    </div>
+                </div>
+
+                <div class="order-info">
+                    <h3>Shipping Address</h3>
+                    <p>${order.firstName} ${order.lastName}</p>
+                    <p>${order.street}</p>
+                    <p>${order.city}, ${order.state} ${order.zipCode}</p>
+                    <p>${order.country}</p>
+                    <p>Phone: ${order.phone}</p>
+                </div>
+
+                <div class="footer">
+                    <p>If you have any questions about your order, please contact our support team.</p>
+                    <p>Thank you for shopping with us!</p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+}
+
 const updateStatus = async(req,res) => {
     try {
         const{orderId,status} = req.body;
-        await orderModel.findByIdAndUpdate(orderId,{status});
-        return res.json({success:true,message:'Status Updated'})
+        
+        if(!orderId || !status) {
+            return res.status(400).json({success: false, message: 'Order ID and status are required'});
+        }
+
+        // Validate status enum
+        const validStatuses = ['Order Placed', 'Processing', 'Shipped', 'Delivered'];
+        if(!validStatuses.includes(status)) {
+            return res.status(400).json({success: false, message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`});
+        }
+
+        // Fetch order to get old status and customer details
+        const order = await orderModel.findById(orderId);
+        if(!order) {
+            return res.status(404).json({success: false, message: 'Order not found'});
+        }
+
+        const oldStatus = order.status;
+
+        // Update order status
+        await orderModel.findByIdAndUpdate(orderId, {status});
+
+        // Send email to customer
+        try {
+            console.log(`\n📧 ===== ORDER STATUS UPDATE EMAIL =====`);
+            console.log(`📧 Order: ${order.orderNumber}`);
+            console.log(`📧 Status changed from "${oldStatus}" to "${status}"`);
+            console.log(`📧 Sending email to: ${order.email}`);
+
+            const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
+            const emailHTML = await generateStatusUpdateEmailHTML(order, status, oldStatus);
+
+            const emailResult = await sendEmail({
+                from: emailFrom,
+                to: order.email,
+                subject: `Order Status Update - ${order.orderNumber} - ${status}`,
+                html: emailHTML
+            });
+
+            if (emailResult.success) {
+                console.log(`✅ Status update email sent successfully!`);
+                console.log(`   📬 To: ${order.email}`);
+                console.log(`   📋 Order Number: ${order.orderNumber}`);
+                console.log(`   📊 Status: ${status}`);
+                console.log(`📧 ======================================\n`);
+            } else {
+                console.log(`\n⚠️  ===== EMAIL SENDING FAILED =====`);
+                console.warn(`⚠️  Email service not configured or failed`);
+                console.warn(`   Error:`, emailResult.error);
+                console.warn(`⚠️  ====================================\n`);
+            }
+        } catch (emailError) {
+            console.error(`\n❌ ===== EMAIL SENDING ERROR =====`);
+            console.error('❌ Failed to send status update email:', emailError.message);
+            console.error(`❌ ===================================\n`);
+            // Don't fail the request if email fails
+        }
+
+        return res.json({
+            success: true,
+            message: 'Status Updated',
+            order: {
+                _id: order._id,
+                orderNumber: order.orderNumber,
+                status: status,
+                oldStatus: oldStatus
+            }
+        });
     } 
     catch (error) {
         console.log(error);
-        return res.json({success: false, message:error.message})
+        return res.status(500).json({success: false, message: error.message});
     }
 }
 

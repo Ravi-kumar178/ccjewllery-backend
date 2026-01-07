@@ -13,7 +13,12 @@ const orderSchema = new mongoose.Schema({
     zipCode: { type: String, required: true },
     country: { type: String, required: true },
     phone: { type: String, required: true },
-    status : { type: String, required: true, default: 'Order Placed' },
+    status : { 
+        type: String, 
+        required: true, 
+        enum: ['Order Placed', 'Processing', 'Shipped', 'Delivered'],
+        default: 'Order Placed' 
+    },
     paymentMethod: { type: String, required: true },
     payment: { type: Boolean, required: true, default: false },
     // Payment tracking fields
