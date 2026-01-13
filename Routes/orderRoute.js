@@ -1,5 +1,5 @@
 import express from 'express'
-import  {placeOrder, placeOrderRazorpay, verifyRazorpay, placeOrderAuthNet, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail, testOrderEmails, testPayment} from '../Controllers/orderController.js'
+import  {placeOrder, placeOrderRazorpay, verifyRazorpay, placeOrderAuthNet, placeOrderStripe, confirmStripePayment, allOrders, getOrderByCart, getOrderByTransactionId, getOrderByOrderNumber, updateStatus, testEmail, testOrderEmails, testPayment} from '../Controllers/orderController.js'
 import adminAuth from '../Middleware/adminAuth.js'
 
 const orderRouter = express.Router();
@@ -13,6 +13,8 @@ orderRouter.post('/place', placeOrder)
 orderRouter.post('/authnet', placeOrderAuthNet)
 orderRouter.post('/razorpay', placeOrderRazorpay)
 orderRouter.post('/verifyrazorpay', verifyRazorpay)
+orderRouter.post('/stripe', placeOrderStripe)
+orderRouter.post('/confirmstripe', confirmStripePayment)
 
 //public order lookup
 orderRouter.post('/getorder', getOrderByCart);
