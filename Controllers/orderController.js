@@ -44,6 +44,84 @@ const generateCODReference = () => {
     return `COD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 }
 
+// Helper function to convert country name to ISO 3166-1 alpha-2 code
+const getCountryCode = (countryName) => {
+    if (!countryName) return 'US'; // Default to US if empty
+    
+    // Convert to lowercase for case-insensitive matching
+    const country = countryName.trim().toLowerCase();
+    
+    // Common country name to ISO code mapping
+    const countryMap = {
+        'india': 'IN',
+        'united states': 'US',
+        'usa': 'US',
+        'united states of america': 'US',
+        'united kingdom': 'GB',
+        'uk': 'GB',
+        'canada': 'CA',
+        'australia': 'AU',
+        'germany': 'DE',
+        'france': 'FR',
+        'italy': 'IT',
+        'spain': 'ES',
+        'japan': 'JP',
+        'china': 'CN',
+        'brazil': 'BR',
+        'mexico': 'MX',
+        'russia': 'RU',
+        'south korea': 'KR',
+        'netherlands': 'NL',
+        'belgium': 'BE',
+        'switzerland': 'CH',
+        'austria': 'AT',
+        'sweden': 'SE',
+        'norway': 'NO',
+        'denmark': 'DK',
+        'finland': 'FI',
+        'poland': 'PL',
+        'portugal': 'PT',
+        'greece': 'GR',
+        'turkey': 'TR',
+        'saudi arabia': 'SA',
+        'uae': 'AE',
+        'united arab emirates': 'AE',
+        'singapore': 'SG',
+        'malaysia': 'MY',
+        'thailand': 'TH',
+        'indonesia': 'ID',
+        'philippines': 'PH',
+        'vietnam': 'VN',
+        'south africa': 'ZA',
+        'egypt': 'EG',
+        'israel': 'IL',
+        'new zealand': 'NZ',
+        'argentina': 'AR',
+        'chile': 'CL',
+        'colombia': 'CO',
+        'peru': 'PE',
+        'bangladesh': 'BD',
+        'pakistan': 'PK',
+        'sri lanka': 'LK',
+        'nepal': 'NP',
+    };
+    
+    // Check if it's already a 2-character code
+    if (country.length === 2 && /^[A-Za-z]{2}$/.test(country)) {
+        return country.toUpperCase();
+    }
+    
+    // Look up in map
+    const code = countryMap[country];
+    if (code) {
+        return code;
+    }
+    
+    // If not found, default to US for Stripe compatibility
+    console.warn(`Country "${countryName}" not found in mapping, defaulting to US`);
+    return 'US';
+}
+
 // Helper function to generate order confirmation email HTML
 const generateOrderEmailHTML = async (order, items) => {
     // Get product details for items
@@ -1342,7 +1420,7 @@ const placeOrderStripe = async(req,res) => {
                         city: city,
                         state: state,
                         postal_code: zipCode,
-                        country: country
+                        country: getCountryCode(country)
                     }
                 }
             });
