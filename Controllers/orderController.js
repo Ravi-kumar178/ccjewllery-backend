@@ -1401,9 +1401,30 @@ const placeOrderStripe = async(req,res) => {
         const stripeAmount = Math.round(finalAmount * 100);
 
         try {
+            // Determine currency based on country (INR for India, USD for others)
+            const countryCode = getCountryCode(country);
+            const currency = countryCode === 'IN' ? 'inr' : 'usd';
+            
+            // Payment method types for US-based products
+            // Payment Element will automatically show:
+            // - Card payments (Visa, Mastercard, Amex, etc.)
+            // - Google Pay (if enabled in Stripe Dashboard and customer's browser supports it)
+            // - Apple Pay (if on iOS/Safari and enabled)
+            // - Link (Stripe's one-click checkout)
+            const paymentMethodTypes = ['card']; // Card is required, Google Pay/Apple Pay are automatically available via Payment Element
+            
+            console.log(`💳 Payment method types: ${paymentMethodTypes.join(', ')}`);
+            console.log(`💳 Country: ${country} (Code: ${countryCode})`);
+            console.log(`💳 Currency: ${currency.toUpperCase()}`);
+            console.log(`💳 Note: Google Pay and Apple Pay will appear automatically in Payment Element if enabled in Stripe Dashboard`);
+            
+            // Amount is already in smallest currency unit (cents for USD, paise for INR)
+            // Both USD and INR use 100 as the multiplier, so stripeAmount is correct
+            
             const paymentIntent = await stripeInstance.paymentIntents.create({
                 amount: stripeAmount,
-                currency: 'usd',
+                currency: currency,
+                payment_method_types: paymentMethodTypes,
                 metadata: {
                     orderId: newOrder._id.toString(),
                     orderNumber: orderNumber,
@@ -1420,7 +1441,7 @@ const placeOrderStripe = async(req,res) => {
                         city: city,
                         state: state,
                         postal_code: zipCode,
-                        country: getCountryCode(country)
+                        country: countryCode
                     }
                 }
             });
@@ -1433,8 +1454,14 @@ const placeOrderStripe = async(req,res) => {
             console.log(`\n💳 ===== STRIPE PAYMENT INTENT CREATED =====`);
             console.log(`💳 Order Number: ${orderNumber}`);
             console.log(`💳 Payment Intent ID: ${paymentIntent.id}`);
-            console.log(`💳 Amount: $${finalAmount} (${stripeAmount} cents)`);
+            console.log(`💳 Amount: ${currency === 'inr' ? '₹' : '$'}${finalAmount} (${stripeAmount} ${currency === 'inr' ? 'paise' : 'cents'})`);
+            console.log(`💳 Currency: ${currency.toUpperCase()}`);
+            console.log(`💳 Payment Methods: ${paymentMethodTypes.join(', ')}`);
             console.log(`💳 Customer: ${firstName} ${lastName} (${email})`);
+            if (countryCode === 'IN' && paymentMethodTypes.length === 1) {
+                console.log(`💳 Note: UPI/PhonePe not enabled. Only card payments available.`);
+                console.log(`💳 Enable UPI at: https://dashboard.stripe.com/account/payments/settings`);
+            }
             console.log(`💳 ===========================================\n`);
 
             // Return payment intent details to frontend
