@@ -1390,22 +1390,86 @@ const confirmStripePayment = async (req, res) => {
         // Retrieve Payment Intent from Stripe
         const paymentIntent = await stripeInstance.paymentIntents.retrieve(paymentIntentId);
 
-        // Find order by orderId or paymentIntentId
-        let order;
+        console.log(`\n🔍 ===== FINDING ORDER FOR PAYMENT INTENT =====`);
+        console.log(`🔍 Payment Intent ID: ${paymentIntentId}`);
+        console.log(`🔍 Order ID from request: ${orderId || 'not provided'}`);
+        console.log(`🔍 Payment Intent metadata:`, paymentIntent.metadata);
+
+        // Find order by multiple methods (in order of preference)
+        let order = null;
+
+        // Method 1: Use orderId from request if provided
         if (orderId) {
+            console.log(`🔍 Method 1: Looking up by orderId: ${orderId}`);
             order = await orderModel.findById(orderId);
-        } else {
+            if (order) {
+                console.log(`✅ Order found by orderId: ${order.orderNumber}`);
+            }
+        }
+
+        // Method 2: Use orderId from Payment Intent metadata
+        if (!order && paymentIntent.metadata && paymentIntent.metadata.orderId) {
+            const metadataOrderId = paymentIntent.metadata.orderId;
+            console.log(`🔍 Method 2: Looking up by orderId from metadata: ${metadataOrderId}`);
+            order = await orderModel.findById(metadataOrderId);
+            if (order) {
+                console.log(`✅ Order found by metadata orderId: ${order.orderNumber}`);
+            }
+        }
+
+        // Method 3: Use orderNumber from Payment Intent metadata
+        if (!order && paymentIntent.metadata && paymentIntent.metadata.orderNumber) {
+            const orderNumber = paymentIntent.metadata.orderNumber;
+            console.log(`🔍 Method 3: Looking up by orderNumber from metadata: ${orderNumber}`);
+            order = await orderModel.findOne({ orderNumber: orderNumber });
+            if (order) {
+                console.log(`✅ Order found by metadata orderNumber: ${order.orderNumber}`);
+            }
+        }
+
+        // Method 4: Search by paymentDetails.paymentIntentId (nested field)
+        if (!order) {
+            console.log(`🔍 Method 4: Looking up by paymentDetails.paymentIntentId`);
             order = await orderModel.findOne({
                 'paymentDetails.paymentIntentId': paymentIntentId
             });
+            if (order) {
+                console.log(`✅ Order found by paymentDetails.paymentIntentId: ${order.orderNumber}`);
+            }
+        }
+
+        // Method 5: Search by paymentIntentId anywhere in paymentDetails (flexible)
+        if (!order) {
+            console.log(`🔍 Method 5: Searching all orders with paymentMethod='Stripe' and matching metadata`);
+            // Get all recent Stripe orders and check their paymentDetails
+            const stripeOrders = await orderModel.find({
+                paymentMethod: 'Stripe',
+                paymentStatus: 'pending'
+            }).sort({ date: -1 }).limit(10);
+            
+            for (const o of stripeOrders) {
+                if (o.paymentDetails && o.paymentDetails.paymentIntentId === paymentIntentId) {
+                    order = o;
+                    console.log(`✅ Order found by scanning recent orders: ${order.orderNumber}`);
+                    break;
+                }
+            }
         }
 
         if (!order) {
+            console.error(`❌ Order not found after trying all methods`);
+            console.error(`❌ Payment Intent ID: ${paymentIntentId}`);
+            console.error(`❌ Payment Intent metadata:`, JSON.stringify(paymentIntent.metadata, null, 2));
             return res.status(404).json({
                 success: false,
-                message: "Order not found"
+                message: "Order not found. Please contact support with Payment Intent ID: " + paymentIntentId
             })
         }
+
+        console.log(`✅ ===== ORDER FOUND =====`);
+        console.log(`✅ Order ID: ${order._id}`);
+        console.log(`✅ Order Number: ${order.orderNumber}`);
+        console.log(`✅ ======================\n`);
 
         // Check payment intent status
         if (paymentIntent.status === 'succeeded') {
