@@ -328,6 +328,141 @@ const swaggerDocument = {
                 }
             }
         },
+        '/api/order/stripe': {
+            post: {
+                tags: ['Order'],
+                summary: 'Create Stripe payment intent (Step 1)',
+                description: 'Creates an order and returns Stripe Payment Intent with client_secret. Amount is AUTO-CALCULATED from cart items (price × quantity) + $10 delivery. Use client_secret with Stripe.js on frontend to complete payment.',
+                requestBody: { 
+                    required: true, 
+                    content: { 
+                        'application/json': { 
+                            schema: { 
+                                type: 'object', 
+                                properties: { 
+                                    cartId: { type: 'string', example: '507f1f77bcf86cd799439011' },
+                                    firstName: { type: 'string', example: 'John' },
+                                    lastName: { type: 'string', example: 'Doe' },
+                                    email: { type: 'string', example: 'john@example.com' },
+                                    street: { type: 'string', example: '123 Main Street' },
+                                    city: { type: 'string', example: 'New York' },
+                                    state: { type: 'string', example: 'NY' },
+                                    zipCode: { type: 'string', example: '10001' },
+                                    country: { type: 'string', example: 'United States' },
+                                    phone: { type: 'string', example: '+1-555-0123' },
+                                    amount: { type: 'number', example: 299.99, description: 'Optional - will be calculated from cart if not provided' }
+                                }, 
+                                required: ['cartId', 'firstName', 'lastName', 'email', 'street', 'city', 'state', 'zipCode', 'country', 'phone'] 
+                            } 
+                        } 
+                    } 
+                },
+                responses: { 
+                    '200': { 
+                        description: 'Stripe payment intent created successfully',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean', example: true },
+                                        message: { type: 'string', example: 'Stripe payment intent created. Complete payment on frontend.' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string', example: 'ORD-LX9K2M-AB3C' },
+                                        paymentIntent: { 
+                                            type: 'object',
+                                            properties: {
+                                                id: { type: 'string', example: 'pi_ABC123xyz', description: 'Payment Intent ID' },
+                                                client_secret: { type: 'string', example: 'pi_ABC123xyz_secret_...', description: 'Use this with Stripe.js to complete payment' },
+                                                amount: { type: 'number', example: 29999, description: 'Amount in cents (multiply by 100)' },
+                                                currency: { type: 'string', example: 'usd' },
+                                                status: { type: 'string', example: 'requires_payment_method', enum: ['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing', 'succeeded', 'canceled'] }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '400': { description: 'Missing required fields or invalid cartId' },
+                    '404': { description: 'Cart not found' },
+                    '500': { description: 'Stripe not configured or server error' }
+                }
+            }
+        },
+        '/api/order/confirmstripe': {
+            post: {
+                tags: ['Order'],
+                summary: 'Confirm Stripe payment (Step 2)',
+                description: 'After user completes payment on Stripe checkout, call this endpoint with the payment_intent_id to verify payment status and complete the order. Sends confirmation email on success.',
+                requestBody: { 
+                    required: true, 
+                    content: { 
+                        'application/json': { 
+                            schema: { 
+                                type: 'object', 
+                                properties: { 
+                                    payment_intent_id: { type: 'string', example: 'pi_ABC123xyz', description: 'Payment Intent ID from Stripe checkout response', required: true },
+                                    payment_intent_client_secret: { type: 'string', example: 'pi_ABC123xyz_secret_...', description: 'Optional - client secret for additional verification' }
+                                }, 
+                                required: ['payment_intent_id'] 
+                            } 
+                        } 
+                    } 
+                },
+                responses: { 
+                    '200': { 
+                        description: 'Payment confirmed successfully',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean', example: true },
+                                        message: { type: 'string', example: 'Payment confirmed successfully' },
+                                        order: { type: 'object' },
+                                        orderNumber: { type: 'string', example: 'ORD-LX9K2M-AB3C' },
+                                        transactionId: { type: 'string', example: 'ch_XYZ789abc', description: 'Stripe charge ID' },
+                                        paymentIntent: {
+                                            type: 'object',
+                                            properties: {
+                                                id: { type: 'string', example: 'pi_ABC123xyz' },
+                                                status: { type: 'string', example: 'succeeded' },
+                                                amount: { type: 'number', example: 29999, description: 'Amount in cents' }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '400': { 
+                        description: 'Payment failed or still processing',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean', example: false },
+                                        message: { type: 'string', example: 'Payment failed. Status: payment_failed' },
+                                        orderNumber: { type: 'string' },
+                                        paymentIntent: {
+                                            type: 'object',
+                                            properties: {
+                                                id: { type: 'string' },
+                                                status: { type: 'string' }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    '404': { description: 'Order not found with this payment intent ID' },
+                    '500': { description: 'Stripe not configured or server error' }
+                }
+            }
+        },
         '/api/order/getorder': {
             post: {
                 tags: ['Order'],
