@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "build": "echo 'No build step required for Node.js backend'",
     "server": "nodemon server.js"
   },
   "keywords": [],
