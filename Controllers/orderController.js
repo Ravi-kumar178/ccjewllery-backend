@@ -24,6 +24,16 @@ const razorpayInstance = RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET
     })
     : null
 
+// Stripe configuration
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY
+
+// Initialize Stripe instance (only if credentials are provided)
+const stripeInstance = STRIPE_SECRET_KEY 
+    ? new Stripe(STRIPE_SECRET_KEY, {
+        apiVersion: '2024-12-18.acacia'
+    })
+    : null
+
 // Generate unique order number
 const generateOrderNumber = () => {
     const timestamp = Date.now().toString(36).toUpperCase();
@@ -1193,6 +1203,329 @@ const placeOrderAuthNet = async(req,res) => {
         return res.json({success: false, message:error.message})
     }
 }
+
+// Placing orders using Stripe
+const placeOrderStripe = async (req, res) => {
+    try {
+        // Check if Stripe is configured
+        if (!stripeInstance) {
+            return res.status(500).json({
+                success: false,
+                message: "Stripe is not configured. Please set STRIPE_SECRET_KEY in environment variables."
+            })
+        }
+
+        const { cartId, amount, firstName, lastName, email, street, city, state, zipCode, country, phone } = req.body;
+
+        // Validate required fields
+        const missingFields = [];
+        if (!cartId) missingFields.push('cartId');
+        if (!firstName) missingFields.push('firstName');
+        if (!lastName) missingFields.push('lastName');
+        if (!email) missingFields.push('email');
+        if (!street) missingFields.push('street');
+        if (!city) missingFields.push('city');
+        if (!state) missingFields.push('state');
+        if (!zipCode) missingFields.push('zipCode');
+        if (!country) missingFields.push('country');
+        if (!phone) missingFields.push('phone');
+
+        if (missingFields.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Missing required fields: ${missingFields.join(', ')}. Amount is optional and will be calculated from cart.`
+            })
+        }
+
+        // Validate cartId is a valid MongoDB ObjectId
+        const mongoose = (await import('mongoose')).default;
+        if (!mongoose.Types.ObjectId.isValid(cartId)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid cartId format. Expected a 24-character MongoDB ObjectId.`
+            })
+        }
+
+        // Get cart and validate
+        const cart = await Cart.findById(cartId);
+        if (!cart) return res.status(404).json({ success: false, message: 'Cart not found' })
+        if (!cart.items || cart.items.length === 0) {
+            return res.status(400).json({ success: false, message: 'Cart is empty' })
+        }
+
+        // Calculate amount if not provided
+        let finalAmount = amount ? Number(amount) : 0;
+        if (!amount) {
+            for (const it of cart.items) {
+                try {
+                    const prod = await productModel.findById(it.productId);
+                    const price = prod && prod.price ? Number(prod.price) : 0;
+                    finalAmount += price * (Number(it.quantity) || 1);
+                } catch (e) {
+                    // ignore missing product price
+                }
+            }
+            finalAmount += deliveryCharge;
+        }
+
+        // Convert to cents for Stripe (Stripe uses smallest currency unit)
+        const amountInCents = Math.round(finalAmount * 100);
+
+        // Generate unique order number
+        const orderNumber = generateOrderNumber();
+
+        // Convert country name to ISO code
+        const countryCode = getCountryCode(country);
+
+        // Determine currency based on country (USD for US, otherwise USD as default)
+        const currency = countryCode === 'US' ? 'usd' : 'usd';
+
+        // Create order FIRST (pending state)
+        const orderData = {
+            cartId,
+            items: cart.items,
+            amount: finalAmount,
+            firstName,
+            lastName,
+            email,
+            street,
+            city,
+            state,
+            zipCode,
+            country,
+            phone,
+            paymentMethod: "Stripe",
+            payment: false,
+            transactionId: null,
+            orderNumber: orderNumber,
+            paymentStatus: 'pending'
+        }
+
+        const newOrder = new orderModel(orderData);
+        await newOrder.save();
+
+        // Create Stripe Payment Intent
+        const paymentIntent = await stripeInstance.paymentIntents.create({
+            amount: amountInCents,
+            currency: currency,
+            automatic_payment_methods: {
+                enabled: true,
+                allow_redirects: 'always'
+            },
+            description: `Order ${orderNumber} - ${firstName} ${lastName}`,
+            receipt_email: email,
+            shipping: {
+                name: `${firstName} ${lastName}`,
+                phone: phone,
+                address: {
+                    line1: street,
+                    city: city,
+                    state: state,
+                    postal_code: zipCode,
+                    country: countryCode
+                }
+            },
+            metadata: {
+                orderNumber: orderNumber,
+                orderId: newOrder._id.toString(),
+                cartId: cartId
+            }
+        });
+
+        // Update order with Payment Intent ID
+        await orderModel.findByIdAndUpdate(newOrder._id, {
+            paymentDetails: {
+                gateway: 'STRIPE',
+                paymentIntentId: paymentIntent.id,
+                status: paymentIntent.status,
+                createdAt: new Date()
+            }
+        });
+
+        console.log(`\n💳 ===== STRIPE PAYMENT INTENT CREATED =====`);
+        console.log(`💳 Order Number: ${orderNumber}`);
+        console.log(`💳 Payment Intent ID: ${paymentIntent.id}`);
+        console.log(`💳 Amount: $${finalAmount} (${amountInCents} cents)`);
+        console.log(`💳 Customer: ${firstName} ${lastName} (${email})`);
+        console.log(`💳 ===========================================\n`);
+
+        return res.json({
+            success: true,
+            message: "Payment Intent created successfully",
+            order: newOrder,
+            orderNumber: orderNumber,
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id
+        })
+
+    } catch (error) {
+        console.error('❌ Stripe Payment Intent creation error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to create Stripe Payment Intent"
+        })
+    }
+}
+
+// Confirm Stripe payment after frontend confirmation
+const confirmStripePayment = async (req, res) => {
+    try {
+        // Check if Stripe is configured
+        if (!stripeInstance) {
+            return res.status(500).json({
+                success: false,
+                message: "Stripe is not configured. Please set STRIPE_SECRET_KEY in environment variables."
+            })
+        }
+
+        const { paymentIntentId, orderId } = req.body;
+
+        if (!paymentIntentId) {
+            return res.status(400).json({
+                success: false,
+                message: "paymentIntentId is required"
+            })
+        }
+
+        // Retrieve Payment Intent from Stripe
+        const paymentIntent = await stripeInstance.paymentIntents.retrieve(paymentIntentId);
+
+        // Find order by orderId or paymentIntentId
+        let order;
+        if (orderId) {
+            order = await orderModel.findById(orderId);
+        } else {
+            order = await orderModel.findOne({
+                'paymentDetails.paymentIntentId': paymentIntentId
+            });
+        }
+
+        if (!order) {
+            return res.status(404).json({
+                success: false,
+                message: "Order not found"
+            })
+        }
+
+        // Check payment intent status
+        if (paymentIntent.status === 'succeeded') {
+            // Payment successful
+            const transactionId = paymentIntent.id;
+
+            // Update order
+            await orderModel.findByIdAndUpdate(order._id, {
+                payment: true,
+                transactionId: transactionId,
+                status: "Processing",
+                paymentStatus: 'completed',
+                paymentDate: new Date(),
+                paymentDetails: {
+                    gateway: 'STRIPE',
+                    paymentIntentId: paymentIntent.id,
+                    status: paymentIntent.status,
+                    amount: paymentIntent.amount / 100, // Convert from cents
+                    currency: paymentIntent.currency,
+                    processedAt: new Date()
+                }
+            });
+
+            // Update cart status
+            await Cart.findByIdAndUpdate(order.cartId, { status: 'completed' });
+
+            // Fetch updated order
+            const updatedOrder = await orderModel.findById(order._id);
+
+            // Get cart for email
+            const cart = await Cart.findById(order.cartId);
+
+            // Send order confirmation emails
+            try {
+                const customerEmailHTML = await generateOrderEmailHTML(updatedOrder, cart?.items || []);
+                const adminEmailHTML = await generateAdminOrderEmailHTML(updatedOrder, cart?.items || []);
+                const emailFrom = process.env.EMAIL_FROM || 'noreply@ccjewllery.com';
+
+                // Send email to customer
+                const customerEmailResult = await sendEmail({
+                    from: emailFrom,
+                    to: order.email,
+                    subject: `Order Confirmation - ${order.orderNumber} (Payment Successful)`,
+                    html: customerEmailHTML
+                });
+
+                if (customerEmailResult.success) {
+                    console.log(`✅ Order confirmation email sent to customer: ${order.email}`);
+                }
+
+                // Send email to admin
+                if (process.env.ADMIN_EMAIL) {
+                    const adminEmailResult = await sendEmail({
+                        from: emailFrom,
+                        to: process.env.ADMIN_EMAIL,
+                        subject: `New Order #${order.orderNumber} - ${order.firstName} ${order.lastName} - $${order.amount.toLocaleString()}`,
+                        html: adminEmailHTML
+                    });
+
+                    if (adminEmailResult.success) {
+                        console.log(`✅ Order notification email sent to admin: ${process.env.ADMIN_EMAIL}`);
+                    }
+                }
+            } catch (emailError) {
+                console.error('❌ Failed to send order confirmation emails:', emailError.message);
+                // Don't fail the order if email fails
+            }
+
+            console.log(`\n✅ ===== STRIPE PAYMENT CONFIRMED =====`);
+            console.log(`✅ Order Number: ${order.orderNumber}`);
+            console.log(`✅ Payment Intent ID: ${paymentIntentId}`);
+            console.log(`✅ Amount: $${(paymentIntent.amount / 100).toLocaleString()}`);
+            console.log(`✅ Customer: ${order.firstName} ${order.lastName}`);
+            console.log(`✅ =====================================\n`);
+
+            return res.json({
+                success: true,
+                message: "Payment confirmed successfully",
+                order: updatedOrder,
+                orderNumber: order.orderNumber,
+                transactionId: transactionId
+            })
+
+        } else if (paymentIntent.status === 'requires_payment_method') {
+            // Payment failed or requires payment method
+            await orderModel.findByIdAndUpdate(order._id, {
+                paymentStatus: 'failed',
+                paymentDetails: {
+                    gateway: 'STRIPE',
+                    paymentIntentId: paymentIntent.id,
+                    status: paymentIntent.status,
+                    error: paymentIntent.last_payment_error?.message || 'Payment failed'
+                }
+            });
+
+            return res.status(400).json({
+                success: false,
+                message: paymentIntent.last_payment_error?.message || "Payment failed. Please try again.",
+                order: order
+            })
+
+        } else {
+            // Payment is still processing or in another state
+            return res.json({
+                success: false,
+                message: `Payment status: ${paymentIntent.status}`,
+                order: order,
+                paymentStatus: paymentIntent.status
+            })
+        }
+
+    } catch (error) {
+        console.error('❌ Stripe payment confirmation error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to confirm Stripe payment"
+        })
+    }
+}
+
 //placing orders using razorpay method - COMMENTED OUT
 // const placeOrderRazorpay = async(req,res) => {
 // 
