@@ -1215,20 +1215,12 @@ const placeOrderStripe = async (req, res) => {
             })
         }
 
-        const { cartId, amount, firstName, lastName, email, street, city, state, zipCode, country, phone } = req.body;
+        const { cartId, amount, firstName, lastName, email, street, city, state, zipCode, country, phone, addressFromWallet } = req.body;
 
-        // Validate required fields
+        // Validate required fields (for Stripe: only cartId and email required; address optional when using Apple Pay/Google Pay)
         const missingFields = [];
         if (!cartId) missingFields.push('cartId');
-        if (!firstName) missingFields.push('firstName');
-        if (!lastName) missingFields.push('lastName');
         if (!email) missingFields.push('email');
-        if (!street) missingFields.push('street');
-        if (!city) missingFields.push('city');
-        if (!state) missingFields.push('state');
-        if (!zipCode) missingFields.push('zipCode');
-        if (!country) missingFields.push('country');
-        if (!phone) missingFields.push('phone');
 
         if (missingFields.length > 0) {
             return res.status(400).json({
@@ -1236,6 +1228,16 @@ const placeOrderStripe = async (req, res) => {
                 message: `Missing required fields: ${missingFields.join(', ')}. Amount is optional and will be calculated from cart.`
             })
         }
+
+        // Use provided values or placeholders when address will come from wallet (Apple Pay / Google Pay)
+        const orderFirstName = (firstName && firstName.trim()) ? firstName.trim() : 'Customer';
+        const orderLastName = (lastName && lastName.trim()) ? lastName.trim() : '';
+        const orderStreet = (street && street.trim()) ? street.trim() : '';
+        const orderCity = (city && city.trim()) ? city.trim() : '';
+        const orderState = (state && state.trim()) ? state.trim() : '';
+        const orderZipCode = (zipCode && zipCode.toString().trim()) ? zipCode.toString().trim() : '';
+        const orderCountry = (country && country.trim()) ? country.trim() : 'US';
+        const orderPhone = (phone && phone.trim()) ? phone.trim() : '';
 
         // Validate cartId is a valid MongoDB ObjectId
         const mongoose = (await import('mongoose')).default;
@@ -1275,25 +1277,25 @@ const placeOrderStripe = async (req, res) => {
         const orderNumber = generateOrderNumber();
 
         // Convert country name to ISO code
-        const countryCode = getCountryCode(country);
+        const countryCode = getCountryCode(orderCountry);
 
         // Determine currency based on country (USD for US, otherwise USD as default)
         const currency = countryCode === 'US' ? 'usd' : 'usd';
 
-        // Create order FIRST (pending state)
+        // Create order FIRST (pending state) - address may be updated from wallet in confirmStripePayment
         const orderData = {
             cartId,
             items: cart.items,
             amount: finalAmount,
-            firstName,
-            lastName,
+            firstName: orderFirstName,
+            lastName: orderLastName,
             email,
-            street,
-            city,
-            state,
-            zipCode,
-            country,
-            phone,
+            street: orderStreet,
+            city: orderCity,
+            state: orderState,
+            zipCode: orderZipCode,
+            country: orderCountry,
+            phone: orderPhone,
             paymentMethod: "Stripe",
             payment: false,
             transactionId: null,
@@ -1304,33 +1306,38 @@ const placeOrderStripe = async (req, res) => {
         const newOrder = new orderModel(orderData);
         await newOrder.save();
 
-        // Create Stripe Payment Intent
-        const paymentIntent = await stripeInstance.paymentIntents.create({
+        // Build Payment Intent params - only include shipping when we have address (otherwise Apple Pay/Google Pay will provide it)
+        const piParams = {
             amount: amountInCents,
             currency: currency,
             automatic_payment_methods: {
                 enabled: true,
                 allow_redirects: 'always'
             },
-            description: `Order ${orderNumber} - ${firstName} ${lastName}`,
+            description: `Order ${orderNumber} - ${orderFirstName} ${orderLastName}`,
             receipt_email: email,
-            shipping: {
-                name: `${firstName} ${lastName}`,
-                phone: phone,
-                address: {
-                    line1: street,
-                    city: city,
-                    state: state,
-                    postal_code: zipCode,
-                    country: countryCode
-                }
-            },
             metadata: {
                 orderNumber: orderNumber,
                 orderId: newOrder._id.toString(),
                 cartId: cartId
             }
-        });
+        };
+        // Include shipping only when address was provided (so Stripe can collect from wallet if not)
+        if (orderStreet && orderCity && orderZipCode && orderCountry) {
+            piParams.shipping = {
+                name: `${orderFirstName} ${orderLastName}`.trim(),
+                phone: orderPhone || undefined,
+                address: {
+                    line1: orderStreet,
+                    city: orderCity,
+                    state: orderState,
+                    postal_code: orderZipCode,
+                    country: countryCode
+                }
+            };
+        }
+
+        const paymentIntent = await stripeInstance.paymentIntents.create(piParams);
 
         // Update order with Payment Intent ID
         await orderModel.findByIdAndUpdate(newOrder._id, {
@@ -1346,7 +1353,7 @@ const placeOrderStripe = async (req, res) => {
         console.log(`💳 Order Number: ${orderNumber}`);
         console.log(`💳 Payment Intent ID: ${paymentIntent.id}`);
         console.log(`💳 Amount: $${finalAmount} (${amountInCents} cents)`);
-        console.log(`💳 Customer: ${firstName} ${lastName} (${email})`);
+        console.log(`💳 Customer: ${orderFirstName} ${orderLastName} (${email})`);
         console.log(`💳 ===========================================\n`);
 
         return res.json({
@@ -1378,7 +1385,7 @@ const confirmStripePayment = async (req, res) => {
             })
         }
 
-        const { paymentIntentId, orderId } = req.body;
+        const { paymentIntentId, orderId, shippingFromWallet } = req.body;
 
         if (!paymentIntentId) {
             return res.status(400).json({
@@ -1476,8 +1483,8 @@ const confirmStripePayment = async (req, res) => {
             // Payment successful
             const transactionId = paymentIntent.id;
 
-            // Update order
-            await orderModel.findByIdAndUpdate(order._id, {
+            // Build address from wallet (Apple Pay / Google Pay) if provided
+            let updatePayload = {
                 payment: true,
                 transactionId: transactionId,
                 status: "Processing",
@@ -1491,7 +1498,49 @@ const confirmStripePayment = async (req, res) => {
                     currency: paymentIntent.currency,
                     processedAt: new Date()
                 }
-            });
+            };
+
+            // Use address from request (frontend sends from Payment Intent after Apple Pay/Google Pay)
+            if (shippingFromWallet && typeof shippingFromWallet === 'object') {
+                const addr = shippingFromWallet.address || shippingFromWallet;
+                const name = shippingFromWallet.name || (order.firstName + ' ' + order.lastName) || 'Customer';
+                const parts = (name || '').trim().split(/\s+/);
+                const firstName = parts[0] || 'Customer';
+                const lastName = parts.slice(1).join(' ') || '';
+                updatePayload = {
+                    ...updatePayload,
+                    firstName,
+                    lastName,
+                    street: addr.line1 || addr.line_1 || '',
+                    city: addr.city || '',
+                    state: addr.state || '',
+                    zipCode: (addr.postal_code || '').toString(),
+                    country: addr.country || order.country || 'US',
+                    phone: shippingFromWallet.phone || order.phone || ''
+                };
+                console.log('✅ Order address updated from wallet (Apple Pay/Google Pay)');
+            } else if (paymentIntent.shipping && paymentIntent.shipping.address) {
+                // Fallback: use address from Payment Intent (Stripe may have collected from Apple Pay)
+                const addr = paymentIntent.shipping.address;
+                const name = paymentIntent.shipping.name || 'Customer';
+                const parts = (name || '').trim().split(/\s+/);
+                const firstName = parts[0] || 'Customer';
+                const lastName = parts.slice(1).join(' ') || '';
+                updatePayload = {
+                    ...updatePayload,
+                    firstName,
+                    lastName,
+                    street: addr.line1 || '',
+                    city: addr.city || '',
+                    state: addr.state || '',
+                    zipCode: (addr.postal_code || '').toString(),
+                    country: addr.country || 'US',
+                    phone: paymentIntent.shipping.phone || order.phone || ''
+                };
+                console.log('✅ Order address updated from Payment Intent (wallet)');
+            }
+
+            await orderModel.findByIdAndUpdate(order._id, updatePayload);
 
             // Update cart status
             await Cart.findByIdAndUpdate(order.cartId, { status: 'completed' });

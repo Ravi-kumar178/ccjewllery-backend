@@ -5,14 +5,14 @@ const orderSchema = new mongoose.Schema({
     items : { type: Array, required: true },
     amount: { type: Number, required: true },
     firstName: { type: String, required: true },
-    lastName: { type: String, required: true },
+    lastName: { type: String, required: false, default: '' }, // Optional when address comes from Apple Pay/Google Pay
     email: { type: String, required: true },
-    street: { type: String, required: true },
-    city: { type: String, required: true },
-    state: { type: String, required: true },
-    zipCode: { type: String, required: true },
-    country: { type: String, required: true },
-    phone: { type: String, required: true },
+    street: { type: String, required: false, default: '' }, // Optional for Stripe wallet flow
+    city: { type: String, required: false, default: '' },
+    state: { type: String, required: false, default: '' },
+    zipCode: { type: String, required: false, default: '' },
+    country: { type: String, required: false, default: 'US' },
+    phone: { type: String, required: false, default: '' }, // Optional for Stripe wallet flow
     status : { 
         type: String, 
         required: true, 
