@@ -1279,8 +1279,8 @@ const placeOrderStripe = async (req, res) => {
         // Convert country name to ISO code
         const countryCode = getCountryCode(orderCountry);
 
-        // Determine currency based on country (USD for US, otherwise USD as default)
-        const currency = countryCode === 'US' ? 'usd' : 'usd';
+        // Determine currency based on country (USD for US, GBP for UK, USD as default)
+        const currency = countryCode === 'GB' ? 'gbp' : (countryCode === 'US' ? 'usd' : 'usd');
 
         // Create order FIRST (pending state) - address may be updated from wallet in confirmStripePayment
         const orderData = {
